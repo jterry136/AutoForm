@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.output/
+.nitro/
+.tanstack/
+package-lock.json
+src/routeTree.gen.ts
+src/db/migrations/
+
+# Hand-authored docs — keep their intentional formatting.
+*.md
