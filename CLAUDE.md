@@ -84,6 +84,8 @@ src/
     webhook.ts            # generic webhook connector
     email.ts              # Resend email connector (header-injection-safe)
     index.ts              # connector registry
+  components/             # custom (non-shadcn) React components
+    ui/                   # shadcn/ui generated primitives (treat as managed)
 docs/                     # getting-started + per-connector docs
 ```
 
@@ -105,7 +107,11 @@ destinations (NFR-MAINT-1). The core treats connectors as **opaque**.
 - **TypeScript everywhere.** No plain `.js` app code.
 - **ArkType, not Zod**, for every schema and validation boundary.
 - **Drizzle for all DB access** — no raw SQL, no other query builders.
-- **shadcn/ui via CLI** for components; **Lucide** for all icons.
+- **shadcn/ui via CLI** for components; **Lucide** for all icons. **Prefer shadcn
+  components over base HTML** when a suitable one exists (`npx shadcn@latest add <name>`
+  before hand-rolling markup). Custom (non-shadcn) components live in `src/components/`;
+  `src/components/ui/` is reserved for shadcn-generated primitives (see
+  [DECISIONS.md](DECISIONS.md) D-003). The project theme is applied via a shadcn preset.
 - **Validate env at startup** with an ArkType schema (`lib/env.ts`); fail fast on missing
   secrets.
 - **Secrets only in server context.** Anything imported into a client component must be

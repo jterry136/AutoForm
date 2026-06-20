@@ -10,6 +10,33 @@ decision, why, and what it implies. Newest at the top.
 
 ---
 
+## D-003 — Prefer shadcn/ui components over base HTML; custom components live in `components/`
+
+**Date:** 2026-06-20 · **Status:** Accepted
+
+**Decision.** When building UI, use **shadcn/ui** components instead of hand-rolling base
+HTML elements wherever a suitable component exists or can be generated (e.g. use the
+shadcn `Button`/`Input`/`Select` rather than raw `<button>`/`<input>`/`<select>`). Base
+HTML is acceptable only for genuinely structural/semantic markup with no shadcn
+equivalent.
+
+When a **custom** component is needed (something shadcn doesn't provide), it lives in
+**`src/components/`** — *not* in `src/components/ui/`, which is reserved for
+shadcn-generated primitives. Keep the two clearly separated so shadcn additions/updates
+never collide with bespoke code.
+
+**Rationale.** Consistency, accessibility, and theming come for free from shadcn (the
+project theme is set via a shadcn preset). Keeping shadcn output isolated in
+`components/ui/` means the CLI can add/update primitives without touching our custom work.
+
+**Implications.**
+- Reach for `npx shadcn@latest add <component>` before writing markup by hand.
+- `src/components/ui/` = shadcn-managed; treat as generated. `src/components/` = our
+  custom components.
+- The exception is the **generated embed/no-JS form output** (FR-EMB-1), which is plain
+  HTML by design — it runs on the user's site, not in our React app, so it is out of scope
+  for this rule.
+
 ## D-002 — ArkType is the canonical representation for every form definition
 
 **Date:** 2026-06-19 · **Status:** Accepted · **Extends:** D-001
