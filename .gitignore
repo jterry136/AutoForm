@@ -14,6 +14,9 @@ dist/
 .env.local
 .env.*.local
 
+# Local backlog (personal task list — not part of the repo)
+BACKLOG.md
+
 # Logs
 *.log
 npm-debug.log*

@@ -1,11 +1,15 @@
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '~/db'
-import { deliveryAttempt, submission } from '~/db/schema'
+import { deliveryAttempt, form, submission } from '~/db/schema'
 import { ingestSubmission } from '~/lib/ingest'
+import { resetRateLimits } from '~/lib/spam'
 import { addDestination, createForm, resetDb } from '../../test/helpers'
 
-beforeEach(resetDb)
+beforeEach(async () => {
+  await resetDb()
+  resetRateLimits()
+})
 
 function formPost(
   body: Record<string, string>,
@@ -67,13 +71,13 @@ describe('ingestSubmission — validate → persist → enqueue (Chunk 2 pipelin
     expect(await attemptsFor(result.submissionId)).toHaveLength(0)
   })
 
-  it('resolves _redirect and strips the honeypot field (FR-EMB-2/FR-SPAM-1)', async () => {
+  it('resolves _redirect and strips an empty honeypot field (FR-EMB-2)', async () => {
     const f = await createForm()
     const result = await ingestSubmission(
       formPost({
         email: 'user@example.com',
         _redirect: '/thanks',
-        _gotcha: 'spam',
+        _gotcha: '', // present (as the embed renders it) but not tripped
       }),
       f.publicId,
     )
@@ -134,5 +138,59 @@ describe('ingestSubmission — validate → persist → enqueue (Chunk 2 pipelin
       f.publicId,
     )
     expect(result.status).toBe('unsupported_media')
+  })
+})
+
+describe('spam & abuse protection (Chunk 7)', () => {
+  it('silently rejects a submission that fills the honeypot (FR-SPAM-1)', async () => {
+    const f = await createForm()
+    await addDestination(f.id)
+    const result = await ingestSubmission(
+      formPost({ email: 'user@example.com', _gotcha: 'i am a bot' }),
+      f.publicId,
+    )
+    expect(result.status).toBe('spam')
+
+    // Nothing persisted, nothing enqueued.
+    const subs = await db
+      .select()
+      .from(submission)
+      .where(eq(submission.formId, f.id))
+    expect(subs).toHaveLength(0)
+  })
+
+  it('accepts a submission whose honeypot is present but empty', async () => {
+    const f = await createForm()
+    const result = await ingestSubmission(
+      formPost({ email: 'user@example.com', _gotcha: '' }),
+      f.publicId,
+    )
+    expect(result.status).toBe('ok')
+  })
+
+  it('rate-limits repeated submissions from the same IP (FR-SPAM-2)', async () => {
+    const f = await createForm()
+    await db
+      .update(form)
+      .set({ rateLimitPerMinute: 2 })
+      .where(eq(form.id, f.id))
+    const headers = { 'x-forwarded-for': '203.0.113.5' }
+
+    const first = await ingestSubmission(
+      formPost({ email: 'a@b.co' }, headers),
+      f.publicId,
+    )
+    const second = await ingestSubmission(
+      formPost({ email: 'a@b.co' }, headers),
+      f.publicId,
+    )
+    const third = await ingestSubmission(
+      formPost({ email: 'a@b.co' }, headers),
+      f.publicId,
+    )
+
+    expect(first.status).toBe('ok')
+    expect(second.status).toBe('ok')
+    expect(third.status).toBe('rate_limited')
   })
 })

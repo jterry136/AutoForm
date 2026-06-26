@@ -10,6 +10,64 @@ decision, why, and what it implies. Newest at the top.
 
 ---
 
+## D-009 — Spam protection: silent honeypot, in-process rate limiting
+
+**Date:** 2026-06-25 · **Status:** Accepted · **Covers:** FR-SPAM-1/2 · **Risk:** R-2
+
+**Decision.** Two MVP guards in the ingestion path (`src/lib/spam.ts`):
+
+1. **Honeypot (FR-SPAM-1).** The generated embed includes an off-screen trap field
+   (`form.honeypotField`, default `_gotcha`). If a submission fills it, the server
+   **silently rejects** — no persist, no delivery — and returns a response **identical to
+   success** (303 redirect / 200 JSON) so bots can't detect the trap.
+
+2. **Rate limiting (FR-SPAM-2).** A process-local **fixed-window counter**: a coarse
+   per-IP cap across all forms (checked before the DB lookup) and a per-`(form, IP)` limit
+   using the form's `rateLimitPerMinute`. Exceeding either returns **429** with
+   `Retry-After` (AJAX) or a friendly page (no-JS). A request with no derivable IP skips
+   rate limiting.
+
+**Rationale.** R-2 makes abuse controls load-bearing, not polish. In-memory limiting needs
+no Redis/DB, fitting the MVP (C-1/C-3). Silent honeypot handling is the standard,
+effective pattern.
+
+**Implications.**
+- The limiter is **per-instance**; horizontally scaling AutoForm would let each instance
+  count separately. A shared store (Redis/DB) is future work (NFR-SCALE) — revisit before
+  running multiple ingestion instances.
+- Honeypot spam is **not stored** (the `submission.spamVerdict` column remains for a future
+  abuse view, FR-SPAM-5). "No submission is lost" (P-5) applies to *accepted* submissions;
+  spam is rejected, not accepted.
+- Accurate client IPs depend on a correct `x-forwarded-for`/`x-real-ip` from the deploy
+  proxy; misconfiguration weakens per-IP limits.
+
+## D-008 — Dashboard authorization: ownership-scoped data layer behind thin server functions
+
+**Date:** 2026-06-25 · **Status:** Accepted · **Implements:** P-2 ·
+**Covers:** FR-ACC-1/2/3, FR-SUB-2, NFR-SEC-2
+
+**Decision.** Dashboard data access lives in plain, testable functions
+(`src/lib/forms.ts`, `destinations.ts`, `inbox.ts`) that **take `userId` explicitly and
+enforce ownership in the query** (e.g. `where owner_id = userId`). TanStack Start **server
+functions** (`src/lib/server-fns.ts`) are thin wrappers that resolve the Better Auth
+session server-side (`requireUserId`) and delegate. Routes call only the server functions;
+the route layout (`/dashboard`) guards with a `beforeLoad` redirect to `/login`.
+
+**Secrets never cross to the client.** Server functions return DTOs that omit
+`encryptedCredentials` (P-2/NFR-SEC-2). jsonb fields are typed as `JsonObject`
+(`src/lib/json.ts`) at the boundary so they serialize cleanly (Start rejects `unknown`).
+
+**Rationale.** Ownership-in-the-query makes authorization a property of the data layer, not
+something each route remembers to check, and keeps it unit-testable without HTTP/session
+mocking (see `dashboard.integration.test.ts`). The session lookup stays at the thin
+server-fn edge.
+
+**Implications.**
+- New dashboard reads/mutations follow the same shape: a `*ForUser(userId, …)` function +
+  a server-fn wrapper. Don't query owned resources without the `userId` predicate.
+- Returning a DB row directly from a server function risks leaking secrets or non-
+  serializable values — map to an explicit DTO.
+
 ## D-007 — Connector contract, retry classification, and worker activation
 
 **Date:** 2026-06-25 · **Status:** Accepted · **Implements:** P-2, NFR-MAINT-1,

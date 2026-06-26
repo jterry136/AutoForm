@@ -1,5 +1,6 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { Webhook } from 'lucide-react'
+import { Button } from '~/components/ui/button'
 
 export const Route = createFileRoute('/')({
   component: Home,
@@ -19,6 +20,14 @@ function Home() {
       <p className="text-sm text-muted-foreground">
         Scaffolding in place — Phase 0 (MVP) build underway.
       </p>
+      <div className="flex gap-3">
+        <Button asChild>
+          <Link to="/signup">Get started</Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link to="/login">Sign in</Link>
+        </Button>
+      </div>
     </main>
   )
 }

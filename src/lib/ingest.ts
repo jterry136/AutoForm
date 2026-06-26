@@ -3,12 +3,19 @@ import { type } from 'arktype'
 import { db } from '~/db'
 import { submission } from '~/db/schema'
 import { enqueueDeliveries } from '~/lib/queue'
+import { checkRateLimit, isHoneypotTripped } from '~/lib/spam'
 import {
   formDefinitionSchema,
   REDIRECT_FIELD,
   validateSubmission,
   type SubmissionError,
 } from '~/lib/validation'
+
+/**
+ * Coarse per-IP cap across all forms (abuse guard, checked before the form
+ * lookup). Per-form limits are configured on the form (rateLimitPerMinute).
+ */
+const PER_IP_GLOBAL_LIMIT = 300
 
 /**
  * Ingestion core (Chunk 2): parse → look up form → validate against its
@@ -20,6 +27,8 @@ import {
  */
 export type IngestResult =
   | { status: 'ok'; submissionId: string; redirectTarget: string | null }
+  | { status: 'spam'; redirectTarget: string | null }
+  | { status: 'rate_limited'; retryAfterSec: number }
   | { status: 'invalid'; errors: SubmissionError[] }
   | { status: 'not_found' }
   | { status: 'unsupported_media' }
@@ -91,6 +100,19 @@ export async function ingestSubmission(
     return { status: 'unsupported_media' }
   }
 
+  // Coarse per-IP guard before any DB work (FR-SPAM-2). A null IP (no proxy
+  // headers, e.g. some test/local contexts) skips rate limiting.
+  const ip = clientIp(request)
+  if (ip) {
+    const globalLimit = checkRateLimit(`ip:${ip}`, PER_IP_GLOBAL_LIMIT)
+    if (!globalLimit.allowed) {
+      return {
+        status: 'rate_limited',
+        retryAfterSec: globalLimit.retryAfterSec,
+      }
+    }
+  }
+
   // Resolve the form by its public ID, with its definition + enabled
   // destinations (P-1: the definition is mandatory — D-001).
   const formRow = await db.query.form.findFirst({
@@ -107,15 +129,31 @@ export async function ingestSubmission(
   const definition = formDefinitionSchema(formRow.definition.definition)
   if (definition instanceof type.errors) return { status: 'misconfigured' }
 
-  // Control fields: resolve the redirect target and strip the honeypot before
-  // validation (honeypot *enforcement* is Chunk 7; here it's just excluded so it
-  // doesn't trip unknown-field rejection).
+  // Resolve the redirect target up front — needed even for silently-rejected
+  // spam, so a bot sees the same success response.
   const redirectRaw = raw[REDIRECT_FIELD]
   const redirectTarget =
     typeof redirectRaw === 'string' && redirectRaw.length > 0
       ? redirectRaw
       : (formRow.redirectUrl ?? null)
+
+  // Honeypot (FR-SPAM-1): if the trap field is filled, silently reject — no
+  // persist, no delivery — while returning a success-looking response.
+  if (isHoneypotTripped(raw[formRow.honeypotField])) {
+    return { status: 'spam', redirectTarget }
+  }
   delete raw[formRow.honeypotField]
+
+  // Per-form + per-IP rate limit (FR-SPAM-2).
+  if (ip) {
+    const formLimit = checkRateLimit(
+      `form:${formRow.id}:ip:${ip}`,
+      formRow.rateLimitPerMinute,
+    )
+    if (!formLimit.allowed) {
+      return { status: 'rate_limited', retryAfterSec: formLimit.retryAfterSec }
+    }
+  }
 
   const result = validateSubmission(definition, raw)
   if (!result.ok) return { status: 'invalid', errors: result.errors }

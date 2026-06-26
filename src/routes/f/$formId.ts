@@ -67,6 +67,35 @@ function respond(result: IngestResult, wantsJson: boolean): Response {
           ...CORS_HEADERS,
         },
       })
+    case 'spam':
+      // Mirror the success path exactly so the honeypot stays invisible to bots.
+      if (wantsJson) return jsonResponse({ ok: true }, 200)
+      return new Response(null, {
+        status: 303,
+        headers: {
+          Location: result.redirectTarget ?? '/success',
+          ...CORS_HEADERS,
+        },
+      })
+    case 'rate_limited':
+      if (wantsJson) {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Too many requests' }),
+          {
+            status: 429,
+            headers: {
+              'content-type': 'application/json',
+              'Retry-After': String(result.retryAfterSec),
+              ...CORS_HEADERS,
+            },
+          },
+        )
+      }
+      return htmlResponse(
+        429,
+        'Too many requests',
+        '<p>You’re submitting too quickly. Please wait a moment and try again.</p>',
+      )
     case 'invalid':
       return wantsJson
         ? jsonResponse({ ok: false, errors: result.errors }, 422)
