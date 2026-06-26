@@ -14,14 +14,23 @@ import { type } from 'arktype'
 const envSchema = type({
   // Supabase Postgres connection string.
   DATABASE_URL: 'string >= 1',
-  // Better Auth (used from the auth chunk onward).
-  'BETTER_AUTH_SECRET?': 'string >= 1',
-  'BETTER_AUTH_URL?': 'string >= 1',
+  // Better Auth.
+  BETTER_AUTH_SECRET: 'string >= 1',
+  BETTER_AUTH_URL: 'string >= 1',
+  // Destination credential encryption (AES-256-GCM). 32 bytes, base64-encoded.
+  ENCRYPTION_KEY: 'string >= 1',
   // Resend (used from the email connector chunk onward).
   'RESEND_API_KEY?': 'string >= 1',
 })
 
-const parsed = envSchema(process.env)
+// Treat empty-string env vars (e.g. `RESEND_API_KEY=` in .env) as unset, so an
+// optional var left blank is "absent" rather than an invalid empty value, while
+// a blank required var still fails clearly.
+const rawEnv = Object.fromEntries(
+  Object.entries(process.env).filter(([, v]) => v !== undefined && v !== ''),
+)
+
+const parsed = envSchema(rawEnv)
 
 if (parsed instanceof type.errors) {
   throw new Error(

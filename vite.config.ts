@@ -13,8 +13,9 @@ export default defineConfig({
   },
   plugins: [
     tailwindcss(),
-    // TanStack Start must come before the React plugin.
-    tanstackStart(),
+    // TanStack Start must come before the React plugin. The custom server entry
+    // starts the in-process delivery worker at boot (src/server.ts).
+    tanstackStart({ server: { entry: './src/server.ts' } }),
     viteReact(),
   ],
 })

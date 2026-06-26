@@ -10,6 +10,7 @@ dist/
 
 # Env / secrets — never commit real values (see .env.example)
 .env
+.env.example
 .env.local
 .env.*.local
 

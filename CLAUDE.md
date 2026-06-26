@@ -77,7 +77,9 @@ src/
     queue.ts              # enqueue + in-process polling worker (retry/backoff/dead-letter)
     validation.ts         # ArkType form-definition + request-body schemas
     spam.ts               # honeypot check, per-form/per-IP rate limiting
-    auth.ts               # Better Auth setup
+    auth.ts               # Better Auth setup (server)
+    auth-client.ts        # Better Auth browser client
+    crypto.ts             # AES-256-GCM encrypt/decrypt for destination credentials
     env.ts                # ArkType-validated environment variables
   connectors/
     types.ts              # the connector interface (see below)
@@ -86,7 +88,7 @@ src/
     index.ts              # connector registry
   components/             # custom (non-shadcn) React components
     ui/                   # shadcn/ui generated primitives (treat as managed)
-docs/                     # getting-started + per-connector docs
+docs/                     # getting-started, form-fields (field↔HTML + shadcn), connectors
 ```
 
 ### Connector interface (REQUIREMENTS.md §9)
@@ -115,7 +117,9 @@ destinations (NFR-MAINT-1). The core treats connectors as **opaque**.
 - **Validate env at startup** with an ArkType schema (`lib/env.ts`); fail fast on missing
   secrets.
 - **Secrets only in server context.** Anything imported into a client component must be
-  free of credentials. Encrypt destination credentials at rest.
+  free of credentials. Encrypt destination credentials at rest with `lib/crypto.ts`
+  (AES-256-GCM, key in `ENCRYPTION_KEY`; see [DECISIONS.md](DECISIONS.md) D-004); decrypt
+  only at delivery time, never on the client.
 - **Sanitize submission content before it reaches connectors** — specifically guard email
   header injection and chat-markup injection (NFR-SEC-3).
 - Keep the **ingestion path fast and side-effect-light**: validate → persist → enqueue →
