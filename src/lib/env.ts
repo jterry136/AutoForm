@@ -26,6 +26,9 @@ const envSchema = type({
   // flagged unhealthy, and the suppression window between notifications.
   'DELIVERY_HEALTH_THRESHOLD?': 'string.integer.parse',
   'DELIVERY_HEALTH_COOLOFF_MINUTES?': 'string.integer.parse',
+  // How often the retention purge pass runs, in milliseconds. Optional; defaults
+  // to hourly and is clamped to a one-minute floor in src/lib/retention-purge.ts.
+  'RETENTION_PURGE_INTERVAL_MS?': '/^[0-9]+$/',
 })
 
 // Treat empty-string env vars (e.g. `RESEND_API_KEY=` in .env) as unset, so an
