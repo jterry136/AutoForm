@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '~/db'
-import { destination, deliveryAttempt } from '~/db/schema'
+import { destination, deliveryAttempt, form } from '~/db/schema'
 import { decrypt } from '~/lib/crypto'
 import {
   addDestinationForUser,
@@ -13,8 +13,10 @@ import {
   getFormForUser,
   listFormsForUser,
   renameFormForUser,
+  setRetentionForUser,
 } from '~/lib/forms'
 import { listSubmissionsForForm } from '~/lib/inbox'
+import { DEFAULT_RETENTION_DAYS, MAX_RETENTION_DAYS } from '~/lib/retention'
 import { createOwner, insertSubmission, resetDb } from '../../test/helpers'
 
 beforeEach(resetDb)
@@ -86,6 +88,85 @@ describe('form CRUD (FR-ACC-2, D-001)', () => {
     expect(reloaded?.name).toBe('Renamed')
     expect((await deleteFormForUser(owner, form.id)).ok).toBe(true)
     expect(await getFormForUser(owner, form.id)).toBeNull()
+  })
+})
+
+describe('retention policy (FR-SUB-3, D-011)', () => {
+  async function retentionOf(formId: string) {
+    const [row] = await db
+      .select({ retentionDays: form.retentionDays })
+      .from(form)
+      .where(eq(form.id, formId))
+    return row?.retentionDays
+  }
+
+  it('gives new forms the default window', async () => {
+    const user = await createOwner()
+    const created = await ownedForm(user)
+    expect(await retentionOf(created.id)).toBe(DEFAULT_RETENTION_DAYS)
+  })
+
+  it('stores each of the three states', async () => {
+    const user = await createOwner()
+    const created = await ownedForm(user)
+
+    expect((await setRetentionForUser(user, created.id, null)).ok).toBe(true)
+    expect(await retentionOf(created.id)).toBeNull()
+
+    expect((await setRetentionForUser(user, created.id, 0)).ok).toBe(true)
+    expect(await retentionOf(created.id)).toBe(0)
+
+    expect((await setRetentionForUser(user, created.id, 30)).ok).toBe(true)
+    expect(await retentionOf(created.id)).toBe(30)
+
+    expect(
+      (await setRetentionForUser(user, created.id, MAX_RETENTION_DAYS)).ok,
+    ).toBe(true)
+    expect(await retentionOf(created.id)).toBe(MAX_RETENTION_DAYS)
+  })
+
+  it('rejects invalid values without changing the stored policy', async () => {
+    const user = await createOwner()
+    const created = await ownedForm(user)
+    await setRetentionForUser(user, created.id, 30)
+
+    for (const invalid of [
+      -1,
+      MAX_RETENTION_DAYS + 1,
+      1.5,
+      '30',
+      'forever',
+      undefined,
+      {},
+    ]) {
+      const res = await setRetentionForUser(user, created.id, invalid)
+      expect(res.ok).toBe(false)
+      if (!res.ok) expect(res.error).toMatch(/retention/i)
+    }
+    expect(await retentionOf(created.id)).toBe(30)
+  })
+
+  it('does not let a stranger change retention (D-008)', async () => {
+    const owner = await createOwner()
+    const stranger = await createOwner()
+    const created = await ownedForm(owner)
+    await setRetentionForUser(owner, created.id, 30)
+
+    const res = await setRetentionForUser(stranger, created.id, 0)
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toBe('Form not found.')
+    expect(await retentionOf(created.id)).toBe(30)
+  })
+
+  it('reports an unknown form the same way as someone else’s', async () => {
+    const user = await createOwner()
+    const res = await setRetentionForUser(
+      user,
+      '00000000-0000-0000-0000-000000000000',
+      30,
+    )
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toBe('Form not found.')
   })
 })
 
