@@ -80,6 +80,8 @@ src/
     index.ts              # Drizzle client
   lib/
     queue.ts              # enqueue + in-process polling worker (retry/backoff/dead-letter)
+    retention.ts          # retention purge pass — redaction to a tombstone (D-011,
+                          #   Phase 2; runs beside the poller, not a separate process)
     validation.ts         # ArkType form-definition + request-body schemas
     spam.ts               # honeypot check, per-form/per-IP rate limiting
     auth.ts               # Better Auth setup (server)
@@ -129,6 +131,14 @@ destinations (NFR-MAINT-1). The core treats connectors as **opaque**.
   header injection and chat-markup injection (NFR-SEC-3).
 - Keep the **ingestion path fast and side-effect-light**: validate → persist → enqueue →
   respond. Heavy work belongs in the worker.
+- **Purging a submission is redaction, not deletion** ([DECISIONS.md](DECISIONS.md)
+  D-011). Retention clears the content columns and stamps `purged_at`, leaving the
+  `submission` row and its `delivery_attempt` history intact — a hard `DELETE` would
+  cascade the history away and break NFR-OBS-1. Hard deletion is reserved for
+  deletion-on-request (NFR-PRIV-2). **Anything that reads submission content must handle a
+  tombstone:** `purged_at != null` means *content is gone*, which is neither "no
+  submission" nor "empty payload" — the inbox, export and replay each need an explicit
+  purged branch.
 
 ## Recording design decisions
 
