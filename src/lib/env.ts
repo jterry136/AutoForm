@@ -21,6 +21,11 @@ const envSchema = type({
   ENCRYPTION_KEY: 'string >= 1',
   // Resend (used from the email connector chunk onward).
   'RESEND_API_KEY?': 'string >= 1',
+  // Delivery-health detection (D-010). Both optional; sensible defaults live in
+  // src/lib/delivery-health.ts. Consecutive dead-letters before a destination is
+  // flagged unhealthy, and the suppression window between notifications.
+  'DELIVERY_HEALTH_THRESHOLD?': 'string.integer.parse',
+  'DELIVERY_HEALTH_COOLOFF_MINUTES?': 'string.integer.parse',
 })
 
 // Treat empty-string env vars (e.g. `RESEND_API_KEY=` in .env) as unset, so an
