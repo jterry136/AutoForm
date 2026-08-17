@@ -99,13 +99,14 @@ own — a form belonging to someone else responds exactly like one that doesn't 
 
 ### What's in the file
 
-Three fixed metadata columns come first, then one column per field:
+Four fixed metadata columns come first, then one column per field:
 
 | Column | Meaning |
 | --- | --- |
 | `submission_id` | The submission's ID. |
 | `submitted_at` | When it was received, ISO-8601 UTC. |
 | `delivery_status` | Rolled-up delivery state: `delivered`, `pending`, `partial`, `failed`, or `none`. |
+| `content_status` | `retained`, or `purged` when the retention policy has cleared the content. |
 | …form fields | One column per field in the **form definition**, in definition order. |
 
 Every defined field gets a column even if no exported submission filled it — the file's
@@ -128,6 +129,9 @@ value if you need it verbatim.
 submissions** per form. When a form has more, the file still downloads and the response
 carries `X-Export-Truncated: true` alongside `X-Export-Row-Limit`. Every response reports its
 row count in `X-Export-Row-Count`.
+
+Stored submissions can be removed one at a time or all at once — see
+[deleting submissions](deleting-submissions.md) for how to answer a deletion request.
 
 ## Running AutoForm locally
 

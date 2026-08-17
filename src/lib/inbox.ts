@@ -1,21 +1,24 @@
 import { type } from 'arktype'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '~/db'
 import { deliveryAttempt, form, formDefinition, submission } from '~/db/schema'
+import type { Result } from '~/lib/forms'
 import type { JsonObject } from '~/lib/json'
 import { formDefinitionSchema, type FormDefinition } from '~/lib/validation'
 
 /**
- * Per-form submission inbox (FR-SUB-2) with delivery visibility (NFR-OBS-1), and
- * the ownership-scoped read behind submission export (FR-SUB-4).
+ * Per-form submission inbox (FR-SUB-2) with delivery visibility (NFR-OBS-1), the
+ * ownership-scoped read behind submission export (FR-SUB-4), and manual deletion
+ * of stored submission data (NFR-PRIV-2).
  *
  * Delivery state per (submission × destination) is the *latest* attempt row
  * (max attempt — D-006). Each submission gets a rolled-up `deliveryStatus`:
  *   delivered | pending | failed | partial | none (no destinations).
  *
- * Ownership is the authorization boundary (D-008): every read takes the session
- * `userId` and returns `null` — never a distinguishable "forbidden" — when the
- * form is not the caller's, so the dashboard is not an existence oracle.
+ * Ownership is the authorization boundary (D-008): every function takes the
+ * session `userId` and enforces ownership inside the query, returning `null` or a
+ * generic "not found" — never a distinguishable "forbidden" — when the form is not
+ * the caller's, so the dashboard is never an existence oracle.
  *
  * Retention is part of the view, not a detail of the rows (FR-SUB-3). A purged
  * submission is a tombstone: the row and its delivery history survive with an
@@ -24,6 +27,10 @@ import { formDefinitionSchema, type FormDefinition } from '~/lib/validation'
  * list so a caller can distinguish "nothing has been submitted" from "this form
  * doesn't retain submissions" — an empty list on a zero-retention form is the
  * policy working, not a bug.
+ *
+ * Deletion here is a real `DELETE`, not the redaction the retention passes use:
+ * deletion-on-request (NFR-PRIV-2) is a different job from retention, and D-011
+ * reserves row removal for exactly this case.
  */
 
 export type DeliverySummary =
@@ -223,4 +230,64 @@ export async function loadFormExport(
     truncated,
     limit,
   }
+}
+
+/**
+ * Delete one stored submission (NFR-PRIV-2). Ownership is part of the DELETE
+ * predicate — the submission must belong to a form this user owns — so a
+ * stranger's request deletes nothing and gets the generic "not found" result.
+ *
+ * The submission's `delivery_attempt` rows go with it (schema-level cascade); a
+ * delivery already made to a destination is obviously not recalled.
+ */
+export async function deleteSubmissionForUser(
+  userId: string,
+  submissionId: string,
+): Promise<Result> {
+  const ownedForms = db
+    .select({ id: form.id })
+    .from(form)
+    .where(eq(form.ownerId, userId))
+
+  const deleted = await db
+    .delete(submission)
+    .where(
+      and(
+        eq(submission.id, submissionId),
+        inArray(submission.formId, ownedForms),
+      ),
+    )
+    .returning({ id: submission.id })
+
+  return deleted.length
+    ? { ok: true }
+    : { ok: false, error: 'Submission not found.' }
+}
+
+/**
+ * Delete every stored submission for a form, leaving the form, its definition
+ * and its destinations in place (NFR-PRIV-2). Ownership is checked first so a
+ * non-owner cannot tell an empty inbox from someone else's form; the count and
+ * the deletion share a transaction so the reported number is the number removed.
+ */
+export async function deleteAllSubmissionsForForm(
+  userId: string,
+  formId: string,
+): Promise<Result<{ deleted: number }>> {
+  const owned = await db
+    .select({ id: form.id })
+    .from(form)
+    .where(and(eq(form.id, formId), eq(form.ownerId, userId)))
+  if (!owned.length) return { ok: false, error: 'Form not found.' }
+
+  const deleted = await db.transaction(async (tx) => {
+    const [counted] = await tx
+      .select({ count: sql<number>`count(*)`.mapWith(Number) })
+      .from(submission)
+      .where(eq(submission.formId, formId))
+    await tx.delete(submission).where(eq(submission.formId, formId))
+    return counted?.count ?? 0
+  })
+
+  return { ok: true, value: { deleted } }
 }

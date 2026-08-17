@@ -78,6 +78,7 @@ for Supabase pooler compatibility. Apply the schema with `npm run db:migrate`.
   [pathway for contributing a new connector](docs/connectors.md#adding-a-connector-contributors)
   (annotated template, test skeleton, and PR checklist).
 - [Self-hosting](docs/self-hosting.md) — run your own instance: clone, env, migrate, deploy.
+- [Deleting submissions](docs/deleting-submissions.md) — removing stored submission data on request.
 
 ## Contributing
 
