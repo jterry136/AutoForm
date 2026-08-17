@@ -6,10 +6,14 @@ import { auth } from '~/lib/auth'
  * session from the incoming request. Never import into client code.
  */
 
-export async function getCurrentUser() {
-  const { headers } = getRequest()
-  const session = await auth.api.getSession({ headers })
+/** Resolve the session user for a request handed to us directly (server routes). */
+export async function getUserForRequest(request: Request) {
+  const session = await auth.api.getSession({ headers: request.headers })
   return session?.user ?? null
+}
+
+export async function getCurrentUser() {
+  return getUserForRequest(getRequest())
 }
 
 /** Returns the current user's id, or throws if unauthenticated (defense in depth). */
