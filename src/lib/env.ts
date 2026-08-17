@@ -29,6 +29,9 @@ const envSchema = type({
   // How often the retention purge pass runs, in milliseconds. Optional; defaults
   // to hourly and is clamped to a one-minute floor in src/lib/retention-purge.ts.
   'RETENTION_PURGE_INTERVAL_MS?': '/^[0-9]+$/',
+  // From address for AutoForm's own platform mail (src/lib/mailer.ts). Optional
+  // — falls back to the Resend onboarding sender, which only works for testing.
+  'MAIL_FROM?': 'string >= 1',
 })
 
 // Treat empty-string env vars (e.g. `RESEND_API_KEY=` in .env) as unset, so an
