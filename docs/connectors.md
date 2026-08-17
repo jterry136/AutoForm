@@ -51,13 +51,60 @@ invalid address) are permanent.
 
 ## Adding a connector (contributors)
 
-Implement the `Connector` interface in `src/connectors/types.ts`:
+Every connector implements one narrow interface from `src/connectors/types.ts`:
 
 ```ts
 deliver(input: { payload, config, credentials }) => Promise<DeliveryOutcome>
 validateConfig?(config) => { ok, error? }   // optional, used at setup time
 ```
 
-`deliver` decides whether a failure is `retryable` (the queue honors it). Register the
-connector in `src/connectors/index.ts` — ingestion and the delivery queue need no changes
-(NFR-MAINT-1). Slack and Airtable connectors are planned for Phase 1.
+`deliver` decides whether a failure is `retryable` (the queue honors it for backoff and
+dead-lettering). Register the connector in `src/connectors/index.ts` — ingestion and the
+delivery queue need no changes (NFR-MAINT-1).
+
+### Start from the template
+
+Rather than write one from scratch, copy the annotated reference connector and its test
+skeleton:
+
+- **[`src/connectors/_template.ts`](../src/connectors/_template.ts)** — a heavily commented
+  connector showing the `Connector` shape, an ArkType-validated config, retryable-vs-permanent
+  classification, submission sanitization (NFR-SEC-3), and secret handling. It is deliberately
+  **not** registered, so it is never a selectable destination — copy it, drop the leading
+  underscore, and adapt.
+- **[`src/connectors/_template.unit.test.ts`](../src/connectors/_template.unit.test.ts)** — the
+  matching unit-test skeleton (success, retryable failure, permanent failure, sanitization,
+  `validateConfig`) built on a throwaway local HTTP server, so it needs no network or database.
+
+```bash
+cp src/connectors/_template.ts src/connectors/mydest.ts
+cp src/connectors/_template.unit.test.ts src/connectors/mydest.unit.test.ts
+# rename the export + `type` key, swap the config schema, payload, and destination call
+```
+
+### Connector PR checklist
+
+Before opening a pull request for a new connector, confirm:
+
+- [ ] **Registered** — added to the registry in `src/connectors/index.ts` with a unique `type`
+      key; ingestion and the delivery core are unchanged (NFR-MAINT-1).
+- [ ] **Documented** — a section added to this file (config table + retry semantics).
+- [ ] **ArkType, not Zod** — config is validated with an ArkType schema; the inferred type is
+      derived from it, not hand-duplicated.
+- [ ] **Retry classification** — transient failures (network/timeout, `408`/`429`/`5xx`) return
+      `retryable: true`; client errors (other `4xx`, invalid config) return `retryable: false`.
+      `deliver` never throws for a normal failure.
+- [ ] **Sanitized** — untrusted submission content cannot inject into the destination (header
+      injection, chat markup/mentions, etc.), per NFR-SEC-3.
+- [ ] **Secrets server-side only (P-2)** — per-destination credentials arrive already decrypted
+      as `input.credentials`; app-level secrets come from `~/lib/env.ts`. Secrets are never put
+      in `error`/`responseBody` (those are logged) and never reach the client.
+- [ ] **No paid-tier-only dependency (C-1)** — the connector works against a free tier.
+- [ ] **Tested** — a `*.unit.test.ts` covering success, retryable failure, permanent failure,
+      and sanitization; `npm run typecheck`, `npm run lint`, and `npm test` are green.
+
+Opening the PR from the repo's pull-request template surfaces this checklist automatically, and
+the **New connector** issue template (`.github/ISSUE_TEMPLATE`) scopes the work up front.
+
+> Every new destination — Slack, Airtable, or anything the community brings — follows exactly
+> this pathway: implement the interface, register it, document it, test it.
