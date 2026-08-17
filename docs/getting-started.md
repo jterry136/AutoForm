@@ -81,7 +81,13 @@ won't lose anything.
 
 ## 6. Export your submissions
 
-Every form's submissions can be downloaded as CSV or JSON:
+On the form page, the **Inbox** card has an **Export** button: open it and pick **Export
+CSV** or **Export JSON**. The file downloads as an attachment named
+`<form-name>-submissions-<date>.csv` (or `.json`). The button is disabled until the form has
+at least one submission.
+
+The same download is a plain authenticated URL, so you can script it with your session
+cookie:
 
 ```
 GET /api/forms/{formId}/export?format=csv     # or format=json (default: csv)
@@ -89,12 +95,34 @@ GET /api/forms/{formId}/export?format=csv     # or format=json (default: csv)
 
 `formId` is the form's dashboard ID (the one in the dashboard URL), **not** the public ID
 used by the embed. The download requires a signed-in session and only ever returns forms you
-own — a form belonging to someone else responds exactly like one that doesn't exist. The file
-arrives as an attachment named `<form-name>-submissions-<date>.csv`.
+own — a form belonging to someone else responds exactly like one that doesn't exist.
 
-Columns come from the form definition, in definition order, after three fixed columns
-(`submission_id`, `submitted_at`, `delivery_status`); keys submitted by a BYO form that
-aren't in the definition are appended afterwards.
+### What's in the file
+
+Three fixed metadata columns come first, then one column per field:
+
+| Column | Meaning |
+| --- | --- |
+| `submission_id` | The submission's ID. |
+| `submitted_at` | When it was received, ISO-8601 UTC. |
+| `delivery_status` | Rolled-up delivery state: `delivered`, `pending`, `partial`, `failed`, or `none`. |
+| …form fields | One column per field in the **form definition**, in definition order. |
+
+Every defined field gets a column even if no exported submission filled it — the file's
+shape belongs to the form, not to whichever rows you happened to download. Keys a BYO form
+submitted that aren't in the definition are appended after the defined ones, sorted
+alphabetically so the header is stable between exports.
+
+In CSV, values that aren't plain text (a multi-select, say) are written as JSON —
+`["a","b"]`. In JSON, they stay structured: the export is an array of
+`{ id, submittedAt, deliveryStatus, payload }` objects, with `payload` keyed in the same
+column order.
+
+**Spreadsheet formula guard.** Submissions are attacker-controlled text, so any CSV value
+starting with `=`, `+`, `-`, `@`, a tab, or a carriage return is prefixed with a single
+quote (`'`). Excel, Sheets, and LibreOffice then show it as text instead of running it as a
+formula. That leading `'` is not part of the submitted data — the JSON export has the raw
+value if you need it verbatim.
 
 **Export size.** An export is built in memory, so it is capped at the **10,000 most recent
 submissions** per form. When a form has more, the file still downloads and the response

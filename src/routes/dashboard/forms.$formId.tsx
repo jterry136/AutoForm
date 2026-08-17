@@ -1,6 +1,6 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { type } from 'arktype'
-import { ArrowLeft, Copy, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, Copy, Download, Pencil, Plus, Trash2 } from 'lucide-react'
 import { type FormEvent, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Badge } from '~/components/ui/badge'
@@ -21,6 +21,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '~/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '~/components/ui/dropdown-menu'
 import { Input } from '~/components/ui/input'
 import { Label } from '~/components/ui/label'
 import {
@@ -39,6 +45,7 @@ import {
   TableRow,
 } from '~/components/ui/table'
 import { generateEmbedHtml } from '~/lib/embed'
+import { EXPORT_FORMAT_OPTIONS, exportDownloadPath } from '~/lib/export-links'
 import type { DeliverySummary } from '~/lib/inbox'
 import {
   addDestinationFn,
@@ -245,15 +252,23 @@ function FormDetail() {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Inbox</CardTitle>
-          <CardDescription>
-            Stored submissions and their delivery status.
-          </CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle>Inbox</CardTitle>
+            <CardDescription>
+              Stored submissions and their delivery status.
+            </CardDescription>
+          </div>
+          <ExportSubmissionsMenu
+            formId={form.id}
+            submissionCount={inbox?.length ?? 0}
+          />
         </CardHeader>
         <CardContent>
           {!inbox || inbox.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No submissions yet.</p>
+            <p className="text-sm text-muted-foreground">
+              No submissions yet — there’s nothing to export.
+            </p>
           ) : (
             <Table>
               <TableHeader>
@@ -299,6 +314,51 @@ function FormDetail() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+/**
+ * Download this form's submissions as CSV or JSON (FR-SUB-4).
+ *
+ * The items are plain anchors, not click handlers: the endpoint answers with
+ * `Content-Disposition: attachment`, so letting the browser navigate is what
+ * produces the file — and a link is focusable, activates on Enter, and offers
+ * the usual "save link as" affordances for free (NFR-A11Y-2).
+ *
+ * With no submissions there is nothing to download, so the trigger is disabled
+ * and says why; the empty inbox below it repeats that in words.
+ */
+function ExportSubmissionsMenu({
+  formId,
+  submissionCount,
+}: {
+  formId: string
+  submissionCount: number
+}) {
+  const empty = submissionCount === 0
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={empty}
+          aria-label="Export submissions"
+          title={empty ? 'No submissions to export yet.' : 'Export submissions'}
+        >
+          <Download className="size-4" aria-hidden="true" />
+          Export
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {EXPORT_FORMAT_OPTIONS.map(({ format, label }) => (
+          <DropdownMenuItem key={format} asChild>
+            <a href={exportDownloadPath(formId, format)}>{label}</a>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

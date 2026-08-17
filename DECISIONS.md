@@ -10,6 +10,56 @@ decision, why, and what it implies. Newest at the top.
 
 ---
 
+## D-012 — Submission export: definition-derived columns, inert CSV, capped in memory
+
+**Date:** 2026-08-17 · **Status:** Accepted · **Covers:** FR-SUB-4 ·
+**Implements:** P-1, P-2 · **Relates to:** D-008
+
+**Decision.** Export (`src/lib/export.ts`, `export-download.ts`, `export-links.ts`) is a
+signed-in GET — `/api/forms/{formId}/export?format=csv|json` — surfaced from the dashboard
+inbox card, and it follows five rules:
+
+1. **Columns derive from the form definition (P-1), in definition order**, after three
+   fixed metadata columns: `submission_id`, `submitted_at` (ISO-8601 UTC), and
+   `delivery_status` (the rolled-up per-submission state). Every defined field gets a
+   column even when no exported row filled it — the file's shape is a property of the
+   form, not of the batch. Payload keys **not** in the definition (BYO or legacy
+   submissions) are appended after them, sorted lexicographically so the header is
+   deterministic.
+2. **CSV formula injection is neutralized, not merely escaped.** A value starting with
+   `=`, `+`, `-`, `@`, TAB, or CR is prefixed with `'` so spreadsheets treat submitted
+   content as text. Submissions are attacker-controlled, so this is a security rule
+   (NFR-SEC-3), not formatting. Quoting is RFC 4180 on top of that.
+3. **Non-scalar values are JSON-stringified in CSV and kept structured in JSON.** CSV is a
+   flat format; inventing column-per-array-element would make the header depend on the
+   data, contradicting rule 1.
+4. **Exports are built in memory and capped at `EXPORT_ROW_LIMIT` (10,000) most recent
+   submissions.** A form past the cap still downloads, with `X-Export-Truncated`,
+   `X-Export-Row-Limit`, and `X-Export-Row-Count` telling the caller what happened.
+5. **A URL, not a server function.** A download needs something the browser can navigate
+   to, so the dashboard menu items are plain links to the documented endpoint rather than
+   click handlers — one code path for the UI and for scripted use.
+
+**Rationale.** Deriving columns from the definition keeps the export consistent with every
+other artifact the definition drives (P-1) and makes two exports of the same form
+diffable. Neutralizing formulas is the only place export can hurt someone: the person
+opening the file is the form's owner. The row cap is what buys pure, unit-testable
+serializers — a streaming export would move the rules into the transport.
+
+**Implications.**
+- Authorization is ownership in the query (D-008): a form you don't own answers exactly
+  like one that doesn't exist (404), and no destination config or credential is reachable
+  from the export path (P-2).
+- The leading `'` on neutralized values is visible in the CSV. Consumers wanting the raw
+  value should use the JSON export; this is documented in `docs/getting-started.md`.
+- Renaming a definition field changes the column header; exports taken before and after a
+  rename won't line up. Acceptable — the alternative is exporting internal ids.
+- Beyond 10,000 submissions per form, export becomes lossy-by-recency. Date-range
+  filtering or a streaming export is the escape hatch if that ceiling starts to bind
+  (out of scope for FR-SUB-4).
+
+---
+
 ## D-010 — Delivery health: consecutive dead-letters, persisted alert de-duplication
 
 **Date:** 2026-08-17 · **Status:** Accepted · **Covers:** FR-NOTIF-1, NFR-OBS-1 ·
