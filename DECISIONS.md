@@ -10,6 +10,52 @@ decision, why, and what it implies. Newest at the top.
 
 ---
 
+## D-010 — Delivery health: consecutive dead-letters, persisted alert de-duplication
+
+**Date:** 2026-08-17 · **Status:** Accepted · **Covers:** FR-NOTIF-1, NFR-OBS-1 ·
+**Builds on:** D-006 (row-per-attempt queue), D-007
+
+**Decision.** A destination is judged healthy or not by a **consecutive dead-letter
+counter**, evaluated event-driven at the moment a delivery reaches a terminal state
+(`src/lib/queue.ts` → `finalize`), never by polling and never in the ingestion path (P-3).
+
+1. **Threshold.** `DELIVERY_HEALTH_THRESHOLD` consecutive dead-letters (default **3**)
+   flags the destination unhealthy. A `failed` attempt — one that still has a retry
+   queued — is *not* counted; only `succeeded` and `dead_letter` are terminal.
+2. **De-duplication.** State lives in a new `destination_health` table (one row per
+   destination, cascade-deleted with it): the counter, `unhealthy_since`,
+   `last_notified_at`, and the most recent error. One alert is emitted when the threshold
+   is crossed, then suppressed for a cool-off of
+   `DELIVERY_HEALTH_COOLOFF_MINUTES` (default **1440**, 24h) before it can repeat.
+3. **Recovery.** Any success resets the counter and clears the unhealthy flag. A
+   `recovered` signal is emitted **only if the owner was actually alerted** — a
+   destination that failed twice and then succeeded is a non-event.
+4. **Signal, not send.** Detection emits a `DeliveryHealthSignal` to an injectable
+   `DeliveryHealthNotifier`. The default logs; the owner-email sender is injected at the
+   worker boundary (`WorkerOptions.notify`), so the queue never imports a mail provider.
+
+**Rationale.** Consecutive-failure counting is deterministic and needs no time-window
+bookkeeping: one integer answers "is this destination broken *right now*", and a success
+is the natural reset. A rolling window would flag a destination that failed five times
+yesterday and has worked since. The state is **persisted rather than in-memory** so a
+restart cannot un-suppress an alert and re-mail an owner about an outage they already know
+about (NFR-REL-3's spirit). The read-modify-write happens inside a transaction over a
+`FOR UPDATE`-locked row, so two workers dead-lettering simultaneously cannot both alert.
+
+**Implications.**
+- The counter is **per destination, not per form**: one broken webhook does not mute
+  alerts for a healthy email destination on the same form.
+- Detection is best-effort by design — `reportDeliveryOutcome` swallows its own errors so
+  a health-tracking or notifier failure can never stall or crash delivery (NFR-REL-2/3).
+  A dropped alert is strictly better than a stalled queue.
+- Every terminal delivery now costs one extra small transaction. Acceptable at MVP
+  volumes; if it ever matters, batch it in the worker tick rather than moving it onto the
+  ingestion path.
+- The default 24h cool-off means an owner hears about a persistent outage once a day, not
+  once per submission. Lower it per deployment via env if that is too quiet.
+- `destination_health` carries no submission content — only counts, timestamps, and the
+  connector's own error text.
+
 ## D-009 — Spam protection: silent honeypot, in-process rate limiting
 
 **Date:** 2026-06-25 · **Status:** Accepted · **Covers:** FR-SPAM-1/2 · **Risk:** R-2
