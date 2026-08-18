@@ -16,6 +16,14 @@ import { formDefinitionSchema, type FormDefinition } from '~/lib/validation'
  * Ownership is the authorization boundary (D-008): every read takes the session
  * `userId` and returns `null` — never a distinguishable "forbidden" — when the
  * form is not the caller's, so the dashboard is not an existence oracle.
+ *
+ * Retention is part of the view, not a detail of the rows (FR-SUB-3). A purged
+ * submission is a tombstone: the row and its delivery history survive with an
+ * emptied payload and a `purgedAt` stamp, so the inbox can say "content purged"
+ * rather than showing a blank row. The form's `retentionDays` travels with the
+ * list so a caller can distinguish "nothing has been submitted" from "this form
+ * doesn't retain submissions" — an empty list on a zero-retention form is the
+ * policy working, not a bug.
  */
 
 export type DeliverySummary =
@@ -30,7 +38,10 @@ type AttemptRow = typeof deliveryAttempt.$inferSelect
 export interface SubmissionWithDelivery {
   id: string
   createdAt: Date
+  /** Empty for a purged submission — check `purgedAt`, not emptiness. */
   normalizedPayload: JsonObject
+  /** Non-null once the content was purged by the retention policy. */
+  purgedAt: Date | null
   deliveryStatus: DeliverySummary
   deliveries: Array<{
     destinationId: string
@@ -39,6 +50,13 @@ export interface SubmissionWithDelivery {
     error: string | null
     responseStatus: number | null
   }>
+}
+
+/** The inbox as a surface: the form's retention policy plus the rows it kept. */
+export interface InboxView {
+  /** null = retain indefinitely, 0 = zero-retention, N = keep for N days. */
+  retentionDays: number | null
+  submissions: SubmissionWithDelivery[]
 }
 
 /**
@@ -122,7 +140,12 @@ async function loadSubmissionsWithDelivery(
     return {
       id: s.id,
       createdAt: s.createdAt,
-      normalizedPayload: s.normalizedPayload as JsonObject,
+      // A tombstone's payload is already `{}`; normalize defensively so a caller
+      // can never render redacted content.
+      normalizedPayload: (s.purgedAt === null
+        ? s.normalizedPayload
+        : {}) as JsonObject,
+      purgedAt: s.purgedAt,
       deliveryStatus: rollUp(rows.map((r) => r.status)),
       deliveries: rows.map((r) => ({
         destinationId: r.destinationId,
@@ -139,9 +162,13 @@ async function loadSubmissionsWithDelivery(
 async function ownedForm(
   userId: string,
   formId: string,
-): Promise<{ id: string; name: string } | null> {
+): Promise<{ id: string; name: string; retentionDays: number | null } | null> {
   const [row] = await db
-    .select({ id: form.id, name: form.name })
+    .select({
+      id: form.id,
+      name: form.name,
+      retentionDays: form.retentionDays,
+    })
     .from(form)
     .where(and(eq(form.id, formId), eq(form.ownerId, userId)))
   return row ?? null
@@ -151,9 +178,13 @@ export async function listSubmissionsForForm(
   userId: string,
   formId: string,
   limit = 100,
-): Promise<SubmissionWithDelivery[] | null> {
-  if (!(await ownedForm(userId, formId))) return null
-  return loadSubmissionsWithDelivery(formId, limit)
+): Promise<InboxView | null> {
+  const owned = await ownedForm(userId, formId)
+  if (!owned) return null
+  return {
+    retentionDays: owned.retentionDays,
+    submissions: await loadSubmissionsWithDelivery(formId, limit),
+  }
 }
 
 /**
