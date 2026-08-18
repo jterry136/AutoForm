@@ -1,7 +1,7 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { type } from 'arktype'
 import { ArrowLeft, Copy, Download, Pencil, Plus, Trash2 } from 'lucide-react'
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, type ReactNode, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
   AlertDialog,
@@ -12,6 +12,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from '~/components/ui/alert-dialog'
 import { Badge } from '~/components/ui/badge'
 import { Button } from '~/components/ui/button'
@@ -66,7 +67,9 @@ import {
 } from '~/lib/retention'
 import {
   addDestinationFn,
+  deleteAllSubmissionsFn,
   deleteDestinationFn,
+  deleteSubmissionFn,
   getFormFn,
   listInboxFn,
   renameFormFn,
@@ -115,6 +118,7 @@ function FormDetail() {
     )
   }
 
+  const formId = form.id
   const endpoint = `${origin}/f/${form.publicId}`
 
   // Retention shapes what the inbox can honestly show (FR-SUB-3): on a
@@ -149,6 +153,30 @@ function FormDetail() {
       return
     }
     toast.success('Destination removed.')
+    router.invalidate()
+  }
+
+  async function onDeleteSubmission(submissionId: string) {
+    const res = await deleteSubmissionFn({ data: { submissionId } })
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    toast.success('Submission deleted.')
+    router.invalidate()
+  }
+
+  async function onDeleteAllSubmissions() {
+    const res = await deleteAllSubmissionsFn({ data: { formId } })
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    toast.success(
+      res.value.deleted === 1
+        ? '1 submission deleted.'
+        : `${res.value.deleted} submissions deleted.`,
+    )
     router.invalidate()
   }
 
@@ -303,6 +331,9 @@ function FormDetail() {
                   <TableHead>Received</TableHead>
                   <TableHead>Data</TableHead>
                   <TableHead className="text-right">Delivery</TableHead>
+                  <TableHead className="w-10">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -325,6 +356,25 @@ function FormDetail() {
                         {DELIVERY_BADGE[s.deliveryStatus].label}
                       </Badge>
                     </TableCell>
+                    <TableCell className="text-right">
+                      <ConfirmDelete
+                        title="Delete this submission?"
+                        description="Its stored data and delivery history are removed for good. Anything already delivered to a destination stays there."
+                        confirmLabel="Delete submission"
+                        onConfirm={() => onDeleteSubmission(s.id)}
+                        trigger={
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Delete submission received ${new Date(
+                              s.createdAt,
+                            ).toLocaleString()}`}
+                          >
+                            <Trash2 className="size-4 text-muted-foreground" />
+                          </Button>
+                        }
+                      />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -338,6 +388,33 @@ function FormDetail() {
         retentionDays={form.retentionDays}
         onSaved={() => router.invalidate()}
       />
+      {inboxRows.length > 0 && (
+        <Card className="border-destructive/30">
+          <CardHeader>
+            <CardTitle>Delete submission data</CardTitle>
+            <CardDescription>
+              Remove the stored submissions for this form — to answer a deletion
+              request, for example. The form, its definition and its
+              destinations are kept, so the endpoint keeps accepting new
+              submissions.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ConfirmDelete
+              title="Delete every stored submission?"
+              description="All submissions for this form, and their delivery history, are permanently deleted. The form itself is kept and its endpoint stays live. This cannot be undone."
+              confirmLabel="Delete all submissions"
+              onConfirm={onDeleteAllSubmissions}
+              trigger={
+                <Button variant="destructive">
+                  <Trash2 className="size-4" aria-hidden="true" />
+                  Delete all submissions
+                </Button>
+              }
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -574,6 +651,44 @@ function RetentionCard({
         </AlertDialogContent>
       </AlertDialog>
     </Card>
+  )
+}
+
+/**
+ * Confirmation gate for a destructive action (NFR-PRIV-2). Deleting submission
+ * data is irreversible, so nothing here happens on a single click.
+ */
+function ConfirmDelete({
+  trigger,
+  title,
+  description,
+  confirmLabel,
+  onConfirm,
+}: {
+  trigger: ReactNode
+  title: string
+  description: string
+  confirmLabel: string
+  onConfirm: () => void | Promise<void>
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction asChild>
+            <Button variant="destructive" onClick={() => void onConfirm()}>
+              {confirmLabel}
+            </Button>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 

@@ -11,7 +11,11 @@ import {
   renameFormForUser,
   setRetentionForUser,
 } from '~/lib/forms'
-import { listSubmissionsForForm } from '~/lib/inbox'
+import {
+  deleteAllSubmissionsForForm,
+  deleteSubmissionForUser,
+  listSubmissionsForForm,
+} from '~/lib/inbox'
 import type { JsonObject } from '~/lib/json'
 import { getCurrentUser, requireUserId } from '~/lib/server-session'
 
@@ -121,4 +125,18 @@ export const listInboxFn = createServerFn({ method: 'GET' })
   .handler(async ({ data }) => {
     const userId = await requireUserId()
     return listSubmissionsForForm(userId, data.formId)
+  })
+
+export const deleteSubmissionFn = createServerFn({ method: 'POST' })
+  .validator((data: { submissionId: string }) => data)
+  .handler(async ({ data }) => {
+    const userId = await requireUserId()
+    return deleteSubmissionForUser(userId, data.submissionId)
+  })
+
+export const deleteAllSubmissionsFn = createServerFn({ method: 'POST' })
+  .validator((data: { formId: string }) => data)
+  .handler(async ({ data }) => {
+    const userId = await requireUserId()
+    return deleteAllSubmissionsForForm(userId, data.formId)
   })

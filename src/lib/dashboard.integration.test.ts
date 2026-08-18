@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '~/db'
@@ -15,7 +16,11 @@ import {
   renameFormForUser,
   setRetentionForUser,
 } from '~/lib/forms'
-import { listSubmissionsForForm } from '~/lib/inbox'
+import {
+  deleteAllSubmissionsForForm,
+  deleteSubmissionForUser,
+  listSubmissionsForForm,
+} from '~/lib/inbox'
 import { DEFAULT_RETENTION_DAYS, MAX_RETENTION_DAYS } from '~/lib/retention'
 import { createOwner, insertSubmission, resetDb } from '../../test/helpers'
 
@@ -298,5 +303,111 @@ describe('submission inbox (FR-SUB-2, NFR-OBS-1)', () => {
     const stranger = await createOwner()
     const form = await ownedForm(owner)
     expect(await listSubmissionsForForm(stranger, form.id)).toBeNull()
+  })
+})
+
+describe('manual submission deletion (NFR-PRIV-2, D-008)', () => {
+  async function formWithSubmissions(userId: string, count: number) {
+    const form = await ownedForm(userId)
+    const ids: string[] = []
+    for (let i = 0; i < count; i++)
+      ids.push((await insertSubmission(form.id)).id)
+    return { form, ids }
+  }
+
+  it('deletes a single submission and cascades its delivery attempts', async () => {
+    const user = await createOwner()
+    const { form, ids } = await formWithSubmissions(user, 2)
+    const dest = await addDestinationForUser(user, {
+      formId: form.id,
+      type: 'webhook',
+      name: 'hook',
+      config: { url: 'https://example.com' },
+    })
+    if (!dest.ok) throw new Error(dest.error)
+    await db.insert(deliveryAttempt).values({
+      submissionId: ids[0]!,
+      destinationId: dest.value.id,
+      status: 'succeeded',
+    })
+
+    const res = await deleteSubmissionForUser(user, ids[0]!)
+    expect(res.ok).toBe(true)
+
+    const inbox = await listSubmissionsForForm(user, form.id)
+    expect(inbox?.submissions).toHaveLength(1)
+    expect(inbox?.submissions[0]?.id).toBe(ids[1])
+
+    const attempts = await db
+      .select()
+      .from(deliveryAttempt)
+      .where(eq(deliveryAttempt.submissionId, ids[0]!))
+    expect(attempts).toHaveLength(0)
+  })
+
+  it('does not let a stranger delete a submission, and says only “not found”', async () => {
+    const owner = await createOwner()
+    const stranger = await createOwner()
+    const { form, ids } = await formWithSubmissions(owner, 1)
+
+    const res = await deleteSubmissionForUser(stranger, ids[0]!)
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toBe('Submission not found.')
+    expect(
+      (await listSubmissionsForForm(owner, form.id))?.submissions,
+    ).toHaveLength(1)
+  })
+
+  it('reports “not found” for an unknown submission id', async () => {
+    const user = await createOwner()
+    const res = await deleteSubmissionForUser(user, randomUUID())
+    expect(res.ok).toBe(false)
+  })
+
+  it('purges every submission for a form, keeping the form itself', async () => {
+    const user = await createOwner()
+    const { form } = await formWithSubmissions(user, 3)
+
+    const res = await deleteAllSubmissionsForForm(user, form.id)
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.value.deleted).toBe(3)
+
+    expect((await listSubmissionsForForm(user, form.id))?.submissions).toEqual(
+      [],
+    )
+    expect(await getFormForUser(user, form.id)).not.toBeNull()
+  })
+
+  it('purges only the target form’s submissions', async () => {
+    const user = await createOwner()
+    const target = await formWithSubmissions(user, 2)
+    const other = await formWithSubmissions(user, 1)
+
+    const res = await deleteAllSubmissionsForForm(user, target.form.id)
+    expect(res.ok).toBe(true)
+    expect(
+      (await listSubmissionsForForm(user, other.form.id))?.submissions,
+    ).toHaveLength(1)
+  })
+
+  it('succeeds with a zero count when the inbox is already empty', async () => {
+    const user = await createOwner()
+    const form = await ownedForm(user)
+    const res = await deleteAllSubmissionsForForm(user, form.id)
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.value.deleted).toBe(0)
+  })
+
+  it('does not let a stranger purge a form’s submissions', async () => {
+    const owner = await createOwner()
+    const stranger = await createOwner()
+    const { form } = await formWithSubmissions(owner, 2)
+
+    const res = await deleteAllSubmissionsForForm(stranger, form.id)
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toBe('Form not found.')
+    expect(
+      (await listSubmissionsForForm(owner, form.id))?.submissions,
+    ).toHaveLength(2)
   })
 })
