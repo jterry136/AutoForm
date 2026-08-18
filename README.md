@@ -77,6 +77,7 @@ for Supabase pooler compatibility. Apply the schema with `npm run db:migrate`.
 - [Connectors](docs/connectors.md) — webhook and email configuration, plus the
   [pathway for contributing a new connector](docs/connectors.md#adding-a-connector-contributors)
   (annotated template, test skeleton, and PR checklist).
+- [Self-hosting](docs/self-hosting.md) — run your own instance: clone, env, migrate, deploy.
 
 ## Contributing
 
