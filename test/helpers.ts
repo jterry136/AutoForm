@@ -45,7 +45,7 @@ export async function createForm(
     /** null = indefinite (default), 0 = zero-retention, N = keep N days. */
     retentionDays?: number | null
   } = {},
-): Promise<{ id: string; publicId: string }> {
+): Promise<{ id: string; publicId: string; ownerId: string }> {
   const ownerId = await createOwner()
   const publicId = `pub_${randomUUID().replace(/-/g, '').slice(0, 16)}`
   const [row] = await db
@@ -58,7 +58,11 @@ export async function createForm(
       redirectUrl: options.redirectUrl ?? null,
       retentionDays: options.retentionDays ?? null,
     })
-    .returning({ id: form.id, publicId: form.publicId })
+    .returning({
+      id: form.id,
+      publicId: form.publicId,
+      ownerId: form.ownerId,
+    })
   if (!row) throw new Error('failed to create form')
 
   await db.insert(formDefinition).values({

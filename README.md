@@ -65,7 +65,10 @@ Copy `.env.example` to `.env` and set:
 | `BETTER_AUTH_SECRET` | Auth signing secret (`openssl rand -base64 32`). |
 | `BETTER_AUTH_URL` | App base URL (e.g. `http://localhost:3000`). |
 | `ENCRYPTION_KEY` | 32-byte, base64-encoded key for destination-credential encryption. |
-| `RESEND_API_KEY` | Resend API key for the email connector (optional until you use email). |
+| `RESEND_API_KEY` | Resend API key for the email connector and for delivery-failure notifications (optional — without it those emails are logged and skipped). |
+| `MAIL_FROM` | Sender identity for AutoForm's own mail (optional; defaults to Resend's testing sender). |
+| `DELIVERY_HEALTH_THRESHOLD` | Consecutive dead-lettered deliveries before a destination is flagged unhealthy (optional; default `3`). |
+| `DELIVERY_HEALTH_COOLOFF_MINUTES` | Minimum gap between two alerts about the same destination (optional; default `1440`). |
 
 `.env` is loaded into the dev server automatically; the Drizzle client uses `prepare: false`
 for Supabase pooler compatibility. Apply the schema with `npm run db:migrate`.
@@ -79,6 +82,8 @@ for Supabase pooler compatibility. Apply the schema with `npm run db:migrate`.
   (annotated template, test skeleton, and PR checklist).
 - [Self-hosting](docs/self-hosting.md) — run your own instance: clone, env, migrate, deploy.
 - [Deleting submissions](docs/deleting-submissions.md) — removing stored submission data on request.
+- [Notifications](docs/notifications.md) — delivery-failure alerts, the dashboard health
+  badge, and how to turn the emails off.
 
 ## Contributing
 

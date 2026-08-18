@@ -133,6 +133,10 @@ row count in `X-Export-Row-Count`.
 Stored submissions can be removed one at a time or all at once — see
 [deleting submissions](deleting-submissions.md) for how to answer a deletion request.
 
+If a destination keeps failing after AutoForm has exhausted its retries, the destination is
+flagged **Failing** on this page and you get one email about it. See
+[Notifications](notifications.md) for the thresholds and how to turn those emails off.
+
 ## Running AutoForm locally
 
 ```bash

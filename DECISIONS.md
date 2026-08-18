@@ -10,6 +10,53 @@ decision, why, and what it implies. Newest at the top.
 
 ---
 
+## D-013 — Delivery-health notifications: per-form opt-out, dashboard always tells the truth
+
+**Date:** 2026-08-18 · **Status:** Accepted · **Covers:** FR-NOTIF-1, NFR-OBS-1,
+NFR-A11Y-1/2 · **Builds on:** D-010 (detection), D-008 (ownership-scoped data layer)
+
+**Decision.** Detection (D-010) emits a signal; **`src/lib/delivery-notifications.ts` is
+the only place that turns one into mail.** It resolves the destination's form and
+owner-facing names, applies the rules below, and calls the system mailer
+(`src/lib/mailer.ts`). It is injected at the worker boundary — the delivery queue still
+never imports a mail provider.
+
+1. **Opt-out is per form, and covers the email only.** `form.delivery_health_emails`
+   (default true) suppresses the mail. Detection, the persisted health state, and the
+   dashboard badge are unaffected, so turning notifications off quiets the mailbox without
+   blinding the owner. No unsubscribe link: the mail goes to the owner's account address,
+   and the authenticated toggle is the way to stop it.
+2. **Recovery is never emailed.** The `recovered` signal clears the dashboard badge and is
+   logged. An owner who has just fixed a destination does not need a second message saying
+   they fixed it.
+3. **The dashboard is the always-on surface.** A flagged destination shows a badge and an
+   inline explanation on the form page, carried by an icon and the word "Failing" rather
+   than by colour (WCAG 2.1 AA 1.4.1). A healthy destination shows nothing — only a
+   problem draws the eye.
+4. **Notification failure is never delivery failure.** Every path through the bridge
+   returns a structured outcome instead of throwing, layered on top of the detection pass
+   already swallowing its own errors.
+
+**Rationale.** The obvious alternative — a global per-account preference — is the wrong
+grain: an owner running one noisy internal webhook alongside a customer-facing form wants
+to mute the first without going deaf on the second. Scoping the opt-out to the *email*
+rather than to detection means the state stays correct while the owner is not listening,
+so the dashboard is trustworthy the moment they come back to it. Keeping the bridge in its
+own module leaves detection unaware of mail and mail unaware of the queue, which is what
+makes both testable with a fake.
+
+**Implications.**
+- Adding a second notification channel (Slack, webhook) means another branch in the
+  bridge, not changes to detection, the queue, or the mailer.
+- The opt-out lives on `form`, so it is deleted with the form and inherited by every
+  destination on it.
+- With `RESEND_API_KEY` unset the notification is a logged no-op; the badge still appears.
+  A self-hoster who never configures Resend loses the email, not the signal.
+- The email is composed from destination metadata only. The alert type has no payload
+  field, so "no submission content in operational mail" is structural, not a convention.
+
+---
+
 ## D-012 — Submission export: definition-derived columns, inert CSV, capped in memory
 
 **Date:** 2026-08-17 · **Status:** Accepted · **Covers:** FR-SUB-4 ·

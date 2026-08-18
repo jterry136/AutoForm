@@ -69,6 +69,10 @@ export const form = pgTable(
     // (purge as soon as delivery is terminal), 1…3650 = keep that many days.
     // New forms default to 90; existing rows keep their null (no backfill).
     retentionDays: integer().default(90),
+    // Owner opt-out for delivery-health notification emails (FR-NOTIF-1, D-013).
+    // false suppresses only the email — detection, the persisted health state,
+    // and the dashboard badge are unaffected.
+    deliveryHealthEmails: boolean().notNull().default(true),
     createdAt: timestamp().notNull().defaultNow(),
     updatedAt: timestamp()
       .notNull()

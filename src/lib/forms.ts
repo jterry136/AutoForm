@@ -82,10 +82,36 @@ export async function getFormForUser(userId: string, formId: string) {
     where: (t, ops) => ops.and(ops.eq(t.id, formId), ops.eq(t.ownerId, userId)),
     with: {
       definition: true,
-      destinations: { orderBy: (d, ops) => ops.desc(d.createdAt) },
+      destinations: {
+        orderBy: (d, ops) => ops.desc(d.createdAt),
+        // Delivery-health state, so the dashboard can flag a broken destination
+        // (FR-NOTIF-1, D-010). null until the destination's first terminal
+        // delivery.
+        with: { health: true },
+      },
     },
   })
   return row ?? null
+}
+
+/**
+ * Turn delivery-health notification emails on or off for a form (D-013).
+ *
+ * Only the *email* is affected: detection keeps running and the dashboard keeps
+ * showing an unhealthy destination, so opting out quiets the mailbox without
+ * blinding the owner.
+ */
+export async function setDeliveryHealthEmailsForUser(
+  userId: string,
+  formId: string,
+  enabled: boolean,
+): Promise<Result> {
+  const updated = await db
+    .update(form)
+    .set({ deliveryHealthEmails: enabled })
+    .where(and(eq(form.id, formId), eq(form.ownerId, userId)))
+    .returning({ id: form.id })
+  return updated.length ? { ok: true } : { ok: false, error: 'Form not found.' }
 }
 
 export async function renameFormForUser(

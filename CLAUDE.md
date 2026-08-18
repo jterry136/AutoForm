@@ -80,8 +80,15 @@ src/
     index.ts              # Drizzle client
   lib/
     queue.ts              # enqueue + in-process polling worker (retry/backoff/dead-letter)
-    retention.ts          # retention purge pass — redaction to a tombstone (D-011,
-                          #   Phase 2; runs beside the poller, not a separate process)
+    retention.ts          # retention vocabulary: the three states, their bounds and
+                          #   UI copy (client-safe — no DB imports)
+    retention-purge.ts    # age-based purge pass — redaction to a tombstone (D-011;
+                          #   runs beside the poller, not a separate process)
+    purge.ts              # zero-retention purge + the shared redactSubmissions primitive
+    delivery-health.ts    # unhealthy-destination detection + alert de-duplication (D-010)
+    delivery-notifications.ts # health signal → owner alert; per-form opt-out (D-013)
+    mailer.ts             # AutoForm's own platform mail (NOT the email connector)
+    mail-text.ts          # header-injection / HTML-escaping primitives shared by both
     validation.ts         # ArkType form-definition + request-body schemas
     spam.ts               # honeypot check, per-form/per-IP rate limiting
     auth.ts               # Better Auth setup (server)
@@ -95,7 +102,8 @@ src/
     index.ts              # connector registry
   components/             # custom (non-shadcn) React components
     ui/                   # shadcn/ui generated primitives (treat as managed)
-docs/                     # getting-started, form-fields (field↔HTML + shadcn), connectors
+docs/                     # getting-started, form-fields (field↔HTML + shadcn), connectors,
+                          #   notifications (delivery-health alerts + opt-out)
 ```
 
 ### Connector interface (REQUIREMENTS.md §9)
@@ -139,6 +147,16 @@ destinations (NFR-MAINT-1). The core treats connectors as **opaque**.
   tombstone:** `purged_at != null` means *content is gone*, which is neither "no
   submission" nor "empty payload" — the inbox, export and replay each need an explicit
   purged branch.
+- **Operational mail is not a connector.** AutoForm's own email (delivery-health alerts)
+  goes through `lib/mailer.ts`, never the connector registry — a destination is
+  user-configured, platform mail is not. Never put submission content in it: alert types
+  carry destination metadata only (see [DECISIONS.md](DECISIONS.md) D-013).
+- **A notification can never break delivery.** Health detection and the notification
+  bridge swallow their own errors and are injected at the worker boundary
+  (`WorkerOptions.notify`), so the queue never imports a mail provider and a dropped alert
+  never becomes a stalled queue (NFR-REL-2/3).
+- **Don't convey status by colour alone** in the dashboard — pair it with an icon and a
+  word (WCAG 2.1 AA 1.4.1, NFR-A11Y-1/2).
 
 ## Recording design decisions
 
