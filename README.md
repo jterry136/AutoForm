@@ -78,6 +78,12 @@ for Supabase pooler compatibility. Apply the schema with `npm run db:migrate`.
   [pathway for contributing a new connector](docs/connectors.md#adding-a-connector-contributors)
   (annotated template, test skeleton, and PR checklist).
 
+## Contributing
+
+Contributions are welcome — especially **new connectors**, which are the project's intended
+extension point. Start with **[CONTRIBUTING.md](CONTRIBUTING.md)**: local setup, the
+verification gate, project conventions, and how to add a connector.
+
 ## License
 
 [MIT](LICENSE).
