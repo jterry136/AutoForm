@@ -22,6 +22,13 @@
       "when": 1786966879451,
       "tag": "0002_funny_fabian_cortez",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787072339093,
+      "tag": "0003_retention_days_default",
+      "breakpoints": true
     }
   ]
 }

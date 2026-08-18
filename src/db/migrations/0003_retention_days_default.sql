@@ -1,0 +1,1 @@
+ALTER TABLE "form" ALTER COLUMN "retention_days" SET DEFAULT 90;

@@ -3,6 +3,16 @@ import { type } from 'arktype'
 import { ArrowLeft, Copy, Download, Pencil, Plus, Trash2 } from 'lucide-react'
 import { type FormEvent, useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '~/components/ui/alert-dialog'
 import { Badge } from '~/components/ui/badge'
 import { Button } from '~/components/ui/button'
 import {
@@ -48,11 +58,19 @@ import { generateEmbedHtml } from '~/lib/embed'
 import { EXPORT_FORMAT_OPTIONS, exportDownloadPath } from '~/lib/export-links'
 import type { DeliverySummary } from '~/lib/inbox'
 import {
+  MAX_RETENTION_DAYS,
+  type RetentionMode,
+  describeRetention,
+  retentionMode,
+  retentionNeedsConfirmation,
+} from '~/lib/retention'
+import {
   addDestinationFn,
   deleteDestinationFn,
   getFormFn,
   listInboxFn,
   renameFormFn,
+  setRetentionFn,
 } from '~/lib/server-fns'
 import { formDefinitionSchema } from '~/lib/validation'
 
@@ -300,6 +318,12 @@ function FormDetail() {
         </CardContent>
       </Card>
 
+      <RetentionCard
+        formId={form.id}
+        retentionDays={form.retentionDays}
+        onSaved={() => router.invalidate()}
+      />
+
       <Card>
         <CardHeader>
           <CardTitle>Definition</CardTitle>
@@ -359,6 +383,182 @@ function ExportSubmissionsMenu({
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/**
+ * Retention settings (FR-SUB-3, D-011). The three states live in one nullable
+ * integer, so the picker maps modes onto it rather than exposing the encoding.
+ *
+ * Anything that shortens the window is confirmed first: retention applies to the
+ * data, not to when the policy was set, so a reduction deletes stored
+ * submissions retroactively on the next purge pass.
+ */
+function RetentionCard({
+  formId,
+  retentionDays,
+  onSaved,
+}: {
+  formId: string
+  retentionDays: number | null
+  onSaved: () => void
+}) {
+  const [mode, setMode] = useState<RetentionMode>(retentionMode(retentionDays))
+  const [days, setDays] = useState(
+    retentionDays && retentionDays > 0 ? String(retentionDays) : '90',
+  )
+  const [pending, setPending] = useState(false)
+  const [confirming, setConfirming] = useState<number | null>(null)
+
+  function nextValue(): number | null | undefined {
+    if (mode === 'indefinite') return null
+    if (mode === 'zero') return 0
+    const parsed = Number(days)
+    if (
+      !Number.isInteger(parsed) ||
+      parsed < 1 ||
+      parsed > MAX_RETENTION_DAYS
+    ) {
+      toast.error(
+        `Enter a whole number of days from 1 to ${MAX_RETENTION_DAYS}.`,
+      )
+      return undefined
+    }
+    return parsed
+  }
+
+  async function save(value: number | null) {
+    setPending(true)
+    const res = await setRetentionFn({ data: { formId, retentionDays: value } })
+    setPending(false)
+    setConfirming(null)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    toast.success('Retention policy saved.')
+    onSaved()
+  }
+
+  function onSubmit(event: FormEvent) {
+    event.preventDefault()
+    const next = nextValue()
+    if (next === undefined) return
+    if (retentionNeedsConfirmation(retentionDays, next)) {
+      setConfirming(next)
+      return
+    }
+    void save(next)
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Retention</CardTitle>
+        <CardDescription>
+          How long AutoForm keeps this form’s submissions. Anything already
+          delivered to a destination is unaffected — delete it there.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+            <div className="flex flex-1 flex-col gap-2">
+              <Label htmlFor="retention-mode">Policy</Label>
+              <Select
+                value={mode}
+                onValueChange={(value) => setMode(value as RetentionMode)}
+              >
+                <SelectTrigger id="retention-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="indefinite">Keep indefinitely</SelectItem>
+                  <SelectItem value="days">
+                    Keep for a set number of days
+                  </SelectItem>
+                  <SelectItem value="zero">
+                    Zero-retention (don’t store)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {mode === 'days' && (
+              <div className="flex flex-col gap-2 sm:w-40">
+                <Label htmlFor="retention-days">Days</Label>
+                <Input
+                  id="retention-days"
+                  type="number"
+                  min={1}
+                  max={MAX_RETENTION_DAYS}
+                  step={1}
+                  required
+                  value={days}
+                  onChange={(e) => setDays(e.target.value)}
+                />
+              </div>
+            )}
+            <Button type="submit" disabled={pending}>
+              {pending ? 'Saving…' : 'Save'}
+            </Button>
+          </div>
+
+          <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+            <p>
+              <span className="font-medium text-foreground">Current: </span>
+              {describeRetention(retentionDays)}
+            </p>
+            {mode === 'zero' ? (
+              <p>
+                Zero-retention still accepts and delivers submissions, but
+                purges the stored copy as soon as every delivery finishes — so
+                the inbox, export, and manual replay are unavailable for this
+                form.
+              </p>
+            ) : (
+              <p>
+                Shortening the window applies to submissions you already have,
+                not just to new ones.
+              </p>
+            )}
+          </div>
+        </form>
+      </CardContent>
+
+      <AlertDialog
+        open={confirming !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirming(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirming === 0
+                ? 'Turn on zero-retention?'
+                : 'Shorten retention?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirming === 0
+                ? 'Stored submissions for this form will be purged once delivery finishes, and the inbox, export, and manual replay will stop working for it. Submissions already delivered to your destinations are not affected.'
+                : `Submissions older than ${confirming} day${confirming === 1 ? '' : 's'} will be deleted from this form’s inbox. This cannot be undone.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={pending}
+              onClick={(event) => {
+                event.preventDefault()
+                if (confirming !== null) void save(confirming)
+              }}
+            >
+              {pending ? 'Saving…' : 'Save policy'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
   )
 }
 

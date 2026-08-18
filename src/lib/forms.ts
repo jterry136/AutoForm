@@ -3,6 +3,7 @@ import { and, desc, eq, sql } from 'drizzle-orm'
 import { db } from '~/db'
 import { destination, form, formDefinition, submission } from '~/db/schema'
 import { generatePublicId } from '~/lib/ids'
+import { retentionDaysSchema } from '~/lib/retention'
 import { formDefinitionSchema } from '~/lib/validation'
 
 /**
@@ -97,6 +98,29 @@ export async function renameFormForUser(
   const updated = await db
     .update(form)
     .set({ name: trimmed })
+    .where(and(eq(form.id, formId), eq(form.ownerId, userId)))
+    .returning({ id: form.id })
+  return updated.length ? { ok: true } : { ok: false, error: 'Form not found.' }
+}
+
+/**
+ * Set the form's retention policy (FR-SUB-3, D-011). The three states are
+ * encoded in one nullable integer — see `~/lib/retention` for the vocabulary and
+ * the ArkType schema this validates against.
+ */
+export async function setRetentionForUser(
+  userId: string,
+  formId: string,
+  retentionDays: unknown,
+): Promise<Result> {
+  const parsed = retentionDaysSchema(retentionDays)
+  if (parsed instanceof type.errors) {
+    return { ok: false, error: `Invalid retention policy: ${parsed.summary}` }
+  }
+
+  const updated = await db
+    .update(form)
+    .set({ retentionDays: parsed })
     .where(and(eq(form.id, formId), eq(form.ownerId, userId)))
     .returning({ id: form.id })
   return updated.length ? { ok: true } : { ok: false, error: 'Form not found.' }

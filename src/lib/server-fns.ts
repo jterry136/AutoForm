@@ -9,6 +9,7 @@ import {
   getFormForUser,
   listFormsForUser,
   renameFormForUser,
+  setRetentionForUser,
 } from '~/lib/forms'
 import { listSubmissionsForForm } from '~/lib/inbox'
 import type { JsonObject } from '~/lib/json'
@@ -51,6 +52,7 @@ export const getFormFn = createServerFn({ method: 'GET' })
       status: form.status,
       redirectUrl: form.redirectUrl,
       honeypotField: form.honeypotField,
+      retentionDays: form.retentionDays,
       createdAt: form.createdAt,
       definition: (form.definition?.definition ?? null) as JsonObject | null,
       destinations: form.destinations.map((d) => ({
@@ -76,6 +78,13 @@ export const renameFormFn = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     const userId = await requireUserId()
     return renameFormForUser(userId, data.formId, data.name)
+  })
+
+export const setRetentionFn = createServerFn({ method: 'POST' })
+  .validator((data: { formId: string; retentionDays: number | null }) => data)
+  .handler(async ({ data }) => {
+    const userId = await requireUserId()
+    return setRetentionForUser(userId, data.formId, data.retentionDays)
   })
 
 export const deleteFormFn = createServerFn({ method: 'POST' })
