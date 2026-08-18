@@ -1,7 +1,10 @@
 import { Resend } from 'resend'
 import { env } from '~/lib/env'
+import { escapeHtml, sanitizeHeaderValue } from '~/lib/mail-text'
 import type { DeliveryOutcome } from '~/lib/queue'
 import type { Connector, ConnectorInput } from './types'
+
+export { sanitizeHeaderValue }
 
 /**
  * Email connector via Resend (FR-CON-3). Config: `{ to, from?, subject? }`. The
@@ -14,28 +17,6 @@ import type { Connector, ConnectorInput } from './types'
 
 const DEFAULT_FROM = 'AutoForm <onboarding@resend.dev>'
 const DEFAULT_SUBJECT = 'New form submission'
-
-/**
- * Strip CR/LF and other control chars from a value used in an email header,
- * collapsing the resulting whitespace. Uses char codes (not a control-char regex
- * literal) to keep the source free of embedded control characters.
- */
-export function sanitizeHeaderValue(value: string): string {
-  let out = ''
-  for (const ch of value) {
-    const code = ch.codePointAt(0) ?? 0
-    out += code < 0x20 || code === 0x7f ? ' ' : ch
-  }
-  return out.replace(/\s+/g, ' ').trim()
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
 
 function formatValue(value: unknown): string {
   if (Array.isArray(value)) return value.map((v) => String(v)).join(', ')
