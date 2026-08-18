@@ -12,7 +12,8 @@ import {
 /** Truncate all domain + auth tables between tests for a clean slate. */
 export async function resetDb(): Promise<void> {
   await db.execute(sql`TRUNCATE TABLE
-    delivery_attempt, submission, destination, form_definition, form,
+    delivery_attempt, destination_health, submission, destination,
+    form_definition, form,
     "session", "account", verification, "user"
     RESTART IDENTITY CASCADE`)
 }

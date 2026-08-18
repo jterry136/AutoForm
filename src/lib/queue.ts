@@ -5,6 +5,11 @@ import { and, asc, eq, inArray, lt, lte } from 'drizzle-orm'
 import { db } from '~/db'
 import { deliveryAttempt, destination, submission } from '~/db/schema'
 import { decrypt } from '~/lib/crypto'
+import {
+  logOnlyNotifier,
+  reportDeliveryOutcome,
+  type DeliveryHealthNotifier,
+} from '~/lib/delivery-health'
 
 /**
  * Delivery queue + in-process polling worker (Chunk 3).
@@ -229,6 +234,7 @@ async function buildContext(
 async function finalize(
   row: DeliveryAttemptRow,
   outcome: DeliveryOutcome,
+  notify: DeliveryHealthNotifier = logOnlyNotifier,
 ): Promise<void> {
   if (outcome.ok) {
     await db
@@ -241,6 +247,8 @@ async function finalize(
         finishedAt: new Date(),
       })
       .where(eq(deliveryAttempt.id, row.id))
+    // Terminal outcome — a success clears any unhealthy flag (D-010).
+    await reportDeliveryOutcome(row.destinationId, { type: 'success' }, notify)
     return
   }
 
@@ -269,32 +277,53 @@ async function finalize(
       })
     }
   })
+
+  // Only dead-lettering is terminal; a `failed` row still has a retry queued, so
+  // it must not count toward the destination's consecutive-failure tally (D-010).
+  // Evaluated outside the transaction above so health tracking can never roll
+  // back the attempt record.
+  if (terminal) {
+    await reportDeliveryOutcome(
+      row.destinationId,
+      { type: 'dead_letter', error: outcome.error },
+      notify,
+    )
+  }
 }
 
 /** Deliver one claimed attempt and finalize it. Never throws. */
 async function processClaimed(
   row: DeliveryAttemptRow,
   dispatch: DeliveryDispatcher,
+  notify: DeliveryHealthNotifier = logOnlyNotifier,
 ): Promise<void> {
   let context: DeliveryContext | null
   try {
     context = await buildContext(row)
   } catch (err) {
     // Decrypt/config failures are permanent — don't spin on them.
-    await finalize(row, {
-      ok: false,
-      retryable: false,
-      error: `Failed to prepare delivery: ${errorMessage(err)}`,
-    })
+    await finalize(
+      row,
+      {
+        ok: false,
+        retryable: false,
+        error: `Failed to prepare delivery: ${errorMessage(err)}`,
+      },
+      notify,
+    )
     return
   }
 
   if (!context) {
-    await finalize(row, {
-      ok: false,
-      retryable: false,
-      error: 'Submission or destination no longer exists.',
-    })
+    await finalize(
+      row,
+      {
+        ok: false,
+        retryable: false,
+        error: 'Submission or destination no longer exists.',
+      },
+      notify,
+    )
     return
   }
 
@@ -306,7 +335,7 @@ async function processClaimed(
     outcome = { ok: false, retryable: true, error: errorMessage(err) }
   }
 
-  await finalize(row, outcome)
+  await finalize(row, outcome, notify)
 }
 
 /**
@@ -316,10 +345,11 @@ async function processClaimed(
 export async function runWorkerOnce(
   dispatch: DeliveryDispatcher = noopDispatcher,
   batchSize: number = BATCH_SIZE,
+  notify: DeliveryHealthNotifier = logOnlyNotifier,
 ): Promise<number> {
   await reclaimStaleAttempts()
   const claimed = await claimDueAttempts(batchSize)
-  await Promise.all(claimed.map((row) => processClaimed(row, dispatch)))
+  await Promise.all(claimed.map((row) => processClaimed(row, dispatch, notify)))
   return claimed.length
 }
 
@@ -328,6 +358,12 @@ export async function runWorkerOnce(
 export interface WorkerOptions {
   /** Connector dispatcher; defaults to the dead-lettering placeholder. */
   dispatch?: DeliveryDispatcher
+  /**
+   * Where delivery-health signals go (D-010). Defaults to logging only; the
+   * owner-notification sender is injected here rather than imported by the queue
+   * so detection stays testable without a mail provider.
+   */
+  notify?: DeliveryHealthNotifier
   intervalMs?: number
   batchSize?: number
 }
@@ -343,6 +379,7 @@ export function startDeliveryWorker(options: WorkerOptions = {}): boolean {
   if (pollTimer) return false
 
   const dispatch = options.dispatch ?? noopDispatcher
+  const notify = options.notify ?? logOnlyNotifier
   const intervalMs = options.intervalMs ?? POLL_INTERVAL_MS
   const batchSize = options.batchSize ?? BATCH_SIZE
 
@@ -350,7 +387,7 @@ export function startDeliveryWorker(options: WorkerOptions = {}): boolean {
     if (ticking) return // never overlap ticks
     ticking = true
     try {
-      await runWorkerOnce(dispatch, batchSize)
+      await runWorkerOnce(dispatch, batchSize, notify)
     } catch (err) {
       console.error('[delivery-worker] tick failed:', errorMessage(err))
     } finally {
