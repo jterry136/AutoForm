@@ -10,6 +10,48 @@ decision, why, and what it implies. Newest at the top.
 
 ---
 
+## D-014 — One canonical environment reference, kept honest by a parity test
+
+**Date:** 2026-08-17 · **Status:** Accepted · **Covers:** FR-DOC-6 · **Constraint:** C-2
+
+**Decision.** Environment variables are documented in exactly **one** place —
+[docs/configuration.md](docs/configuration.md). The README links to it and no longer
+carries its own table. Three artifacts describe the same set of variables:
+
+- **`src/lib/env.ts`** — the ArkType schema (the contract), plus an exported `ENV_VARS`
+  table recording each variable's requiredness and what its absence costs.
+- **`.env.example`** — the template, one blank key per variable.
+- **`docs/configuration.md`** — the prose reference.
+
+`src/lib/env.unit.test.ts` asserts they agree: names match in all three, requiredness in
+the docs matches the schema's behaviour, every variable has a section, and no secret value
+is committed to `.env.example`.
+
+Each variable is additionally classified as **startup-fatal** (absence throws on first
+import of `env.ts` — `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`,
+`ENCRYPTION_KEY`) or **feature-disabling** (`RESEND_API_KEY`: only the email connector
+stops working, and its failures are non-retryable rather than silent).
+
+**Rationale.** A self-hosting guide is only worth reading if it matches the code, and a
+duplicated table drifts the moment someone adds a variable — `ENCRYPTION_KEY` was already
+required by the schema but absent from `.env.example`, so copying the template produced an
+instance that could not boot. Prose alone cannot prevent that recurring; a test can. C-2
+makes this load-bearing: an outside contributor's first hour is spent on configuration.
+
+**Implications.**
+- **Adding or removing a variable is a three-file change** — schema + `ENV_VARS`,
+  `.env.example`, `docs/configuration.md` — and the test fails until all three land.
+- Documenting a variable no code reads is a **failure**, not harmless hedging. Credentials
+  for unbuilt connectors (Slack/Airtable OAuth, Turnstile) are named in a "not
+  environment variables" section instead, so nobody sets them expecting an effect.
+- Values the *host* owns (`PORT`, `NODE_ENV`) are called out separately and stay out of the
+  schema and `.env.example`.
+- Compile-time tunables (worker poll interval, retry bounds, rate-limit window) are
+  documented as **not** configurable via env, pointing at the constants instead. Promoting
+  one to an env var means following the three-file rule.
+
+---
+
 ## D-013 — Delivery-health notifications: per-form opt-out, dashboard always tells the truth
 
 **Date:** 2026-08-18 · **Status:** Accepted · **Covers:** FR-NOTIF-1, NFR-OBS-1,

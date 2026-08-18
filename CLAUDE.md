@@ -130,7 +130,11 @@ destinations (NFR-MAINT-1). The core treats connectors as **opaque**.
   `src/components/ui/` is reserved for shadcn-generated primitives (see
   [DECISIONS.md](DECISIONS.md) D-003). The project theme is applied via a shadcn preset.
 - **Validate env at startup** with an ArkType schema (`lib/env.ts`); fail fast on missing
-  secrets.
+  secrets. **Adding or removing an env var is a three-file change** — the schema *and*
+  `ENV_VARS` in `lib/env.ts`, `.env.example`, and the reference table in
+  `docs/configuration.md` — enforced by `lib/env.unit.test.ts` (see
+  [DECISIONS.md](DECISIONS.md) D-014). Never document a variable no code reads, and never
+  add credentials for a connector that hasn't shipped.
 - **Secrets only in server context.** Anything imported into a client component must be
   free of credentials. Encrypt destination credentials at rest with `lib/crypto.ts`
   (AES-256-GCM, key in `ENCRYPTION_KEY`; see [DECISIONS.md](DECISIONS.md) D-004); decrypt

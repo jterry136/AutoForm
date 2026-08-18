@@ -57,18 +57,13 @@ npm run dev
 
 ### Environment
 
-Copy `.env.example` to `.env` and set:
+Copy `.env.example` to `.env` and set the four required variables — `DATABASE_URL`,
+`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and `ENCRYPTION_KEY` — plus `RESEND_API_KEY` if
+you want the email connector.
 
-| Variable | Purpose |
-|---|---|
-| `DATABASE_URL` | Supabase Postgres connection — use the **Transaction pooler** URL (Dashboard → Project → Connect → ORMs / Drizzle). |
-| `BETTER_AUTH_SECRET` | Auth signing secret (`openssl rand -base64 32`). |
-| `BETTER_AUTH_URL` | App base URL (e.g. `http://localhost:3000`). |
-| `ENCRYPTION_KEY` | 32-byte, base64-encoded key for destination-credential encryption. |
-| `RESEND_API_KEY` | Resend API key for the email connector and for delivery-failure notifications (optional — without it those emails are logged and skipped). |
-| `MAIL_FROM` | Sender identity for AutoForm's own mail (optional; defaults to Resend's testing sender). |
-| `DELIVERY_HEALTH_THRESHOLD` | Consecutive dead-lettered deliveries before a destination is flagged unhealthy (optional; default `3`). |
-| `DELIVERY_HEALTH_COOLOFF_MINUTES` | Minimum gap between two alerts about the same destination (optional; default `1440`). |
+**[docs/configuration.md](docs/configuration.md)** is the full reference: what each
+variable does, what breaks without it, how to generate it, and which are startup-fatal
+versus merely feature-disabling.
 
 `.env` is loaded into the dev server automatically; the Drizzle client uses `prepare: false`
 for Supabase pooler compatibility. Apply the schema with `npm run db:migrate`.
@@ -76,6 +71,7 @@ for Supabase pooler compatibility. Apply the schema with `npm run db:migrate`.
 ## Documentation
 
 - [Getting started](docs/getting-started.md) — zero to a live, delivering form.
+- [Configuration](docs/configuration.md) — every environment variable, and what breaks without it.
 - [Form fields](docs/form-fields.md) — the form-definition reference (types, HTML, shadcn/ui).
 - [Connectors](docs/connectors.md) — webhook and email configuration, plus the
   [pathway for contributing a new connector](docs/connectors.md#adding-a-connector-contributors)
