@@ -79,6 +79,28 @@ badge: **Delivered**, **Pending**, **Partial**, or **Failed**. Delivery happens
 asynchronously with automatic retries and dead-lettering, so a temporarily down destination
 won't lose anything.
 
+## 6. Export your submissions
+
+Every form's submissions can be downloaded as CSV or JSON:
+
+```
+GET /api/forms/{formId}/export?format=csv     # or format=json (default: csv)
+```
+
+`formId` is the form's dashboard ID (the one in the dashboard URL), **not** the public ID
+used by the embed. The download requires a signed-in session and only ever returns forms you
+own — a form belonging to someone else responds exactly like one that doesn't exist. The file
+arrives as an attachment named `<form-name>-submissions-<date>.csv`.
+
+Columns come from the form definition, in definition order, after three fixed columns
+(`submission_id`, `submitted_at`, `delivery_status`); keys submitted by a BYO form that
+aren't in the definition are appended afterwards.
+
+**Export size.** An export is built in memory, so it is capped at the **10,000 most recent
+submissions** per form. When a form has more, the file still downloads and the response
+carries `X-Export-Truncated: true` alongside `X-Export-Row-Limit`. Every response reports its
+row count in `X-Export-Row-Count`.
+
 ## Running AutoForm locally
 
 ```bash

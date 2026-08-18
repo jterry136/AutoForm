@@ -18,6 +18,7 @@ import { Route as DashboardIndexRouteImport } from './routes/dashboard/index'
 import { Route as FFormIdRouteImport } from './routes/f/$formId'
 import { Route as DashboardFormsFormIdRouteImport } from './routes/dashboard/forms.$formId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiFormsFormIdExportRouteImport } from './routes/api/forms.$formId.export'
 
 const SuccessRoute = SuccessRouteImport.update({
   id: '/success',
@@ -64,6 +65,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiFormsFormIdExportRoute = ApiFormsFormIdExportRouteImport.update({
+  id: '/api/forms/$formId/export',
+  path: '/api/forms/$formId/export',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -75,6 +81,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/': typeof DashboardIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/dashboard/forms/$formId': typeof DashboardFormsFormIdRoute
+  '/api/forms/$formId/export': typeof ApiFormsFormIdExportRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -85,6 +92,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/dashboard/forms/$formId': typeof DashboardFormsFormIdRoute
+  '/api/forms/$formId/export': typeof ApiFormsFormIdExportRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -97,6 +105,7 @@ export interface FileRoutesById {
   '/dashboard/': typeof DashboardIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/dashboard/forms/$formId': typeof DashboardFormsFormIdRoute
+  '/api/forms/$formId/export': typeof ApiFormsFormIdExportRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -110,6 +119,7 @@ export interface FileRouteTypes {
     | '/dashboard/'
     | '/api/auth/$'
     | '/dashboard/forms/$formId'
+    | '/api/forms/$formId/export'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -120,6 +130,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/api/auth/$'
     | '/dashboard/forms/$formId'
+    | '/api/forms/$formId/export'
   id:
     | '__root__'
     | '/'
@@ -131,6 +142,7 @@ export interface FileRouteTypes {
     | '/dashboard/'
     | '/api/auth/$'
     | '/dashboard/forms/$formId'
+    | '/api/forms/$formId/export'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -141,6 +153,7 @@ export interface RootRouteChildren {
   SuccessRoute: typeof SuccessRoute
   FFormIdRoute: typeof FFormIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiFormsFormIdExportRoute: typeof ApiFormsFormIdExportRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -208,6 +221,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/forms/$formId/export': {
+      id: '/api/forms/$formId/export'
+      path: '/api/forms/$formId/export'
+      fullPath: '/api/forms/$formId/export'
+      preLoaderRoute: typeof ApiFormsFormIdExportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -233,6 +253,7 @@ const rootRouteChildren: RootRouteChildren = {
   SuccessRoute: SuccessRoute,
   FFormIdRoute: FFormIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiFormsFormIdExportRoute: ApiFormsFormIdExportRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
