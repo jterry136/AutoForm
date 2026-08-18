@@ -187,6 +187,34 @@ export const deliveryAttempt = pgTable(
   ],
 )
 
+// ─── DestinationHealth (delivery-health detection state) ─────────────────────
+// One row per destination, created lazily the first time a delivery for it
+// reaches a terminal state. Holds the consecutive dead-letter counter and the
+// de-duplication state that stops a broken destination from alerting its owner
+// once per failed submission (FR-NOTIF-1, D-010). Persisted rather than
+// in-memory so the suppression survives a restart (NFR-REL-3).
+
+export const destinationHealth = pgTable('destination_health', {
+  // PK = FK: at most one health row per destination, gone when it is.
+  destinationId: uuid()
+    .primaryKey()
+    .references(() => destination.id, { onDelete: 'cascade' }),
+  // Dead-letters since the last success. Reset to 0 by any success.
+  consecutiveDeadLetters: integer().notNull().default(0),
+  // When the counter first crossed the threshold. null = currently healthy.
+  unhealthySince: timestamp(),
+  // When the owner was last told about this destination. Drives the cool-off.
+  lastNotifiedAt: timestamp(),
+  lastDeadLetterAt: timestamp(),
+  lastSuccessAt: timestamp(),
+  // Error text from the most recent dead-letter, for the notification body.
+  lastError: text(),
+  updatedAt: timestamp()
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+})
+
 // ─── Relations ───────────────────────────────────────────────────────────────
 
 export const userRelations = relations(user, ({ many }) => ({
@@ -210,7 +238,18 @@ export const formDefinitionRelations = relations(formDefinition, ({ one }) => ({
 export const destinationRelations = relations(destination, ({ one, many }) => ({
   form: one(form, { fields: [destination.formId], references: [form.id] }),
   deliveryAttempts: many(deliveryAttempt),
+  health: one(destinationHealth),
 }))
+
+export const destinationHealthRelations = relations(
+  destinationHealth,
+  ({ one }) => ({
+    destination: one(destination, {
+      fields: [destinationHealth.destinationId],
+      references: [destination.id],
+    }),
+  }),
+)
 
 export const submissionRelations = relations(submission, ({ one, many }) => ({
   form: one(form, { fields: [submission.formId], references: [form.id] }),
