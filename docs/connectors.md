@@ -9,7 +9,9 @@ Add a destination from a form's page in the dashboard (**Destinations → Add**)
 enter are **encrypted at rest** and only decrypted at delivery time; they never reach the
 browser.
 
-The MVP ships two connectors.
+The MVP ships two connectors. Building a new one? See
+**[Writing a connector](connectors-authoring.md)** — the full authoring guide (contract,
+retry classification, secrets, registration, sanitization, tests).
 
 ## Webhook
 
