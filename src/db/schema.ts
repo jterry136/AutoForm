@@ -65,7 +65,9 @@ export const form = pgTable(
     honeypotField: text().notNull().default('_gotcha'),
     // Per-form rate limit (FR-SPAM-2).
     rateLimitPerMinute: integer().notNull().default(60),
-    // Retention policy (Q-3, pending). null = retain indefinitely (MVP default).
+    // Retention policy (D-011). null = retain indefinitely, 0 = zero-retention,
+    // 1…3650 = days. Phase 0 leaves this null and nothing purges it; the 90-day
+    // default for new forms and the purge pass arrive with the retention chunk.
     retentionDays: integer(),
     createdAt: timestamp().notNull().defaultNow(),
     updatedAt: timestamp()

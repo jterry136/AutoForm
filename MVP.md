@@ -129,5 +129,10 @@ pathway. *(Phases 1–2.)*
 ## Open questions to settle before/while building
 - **Q-1** — ✅ **Resolved:** the canonical form definition is **mandatory for all forms**,
   including BYO. See [DECISIONS.md](DECISIONS.md) D-001.
-- **Q-3** — Default submission **retention period**, and whether **zero-retention** ships
-  in Phase 0 or is deferred to Phase 2. _Pending._
+- **Q-3** — ✅ **Resolved:** new forms default to **90 days**; existing forms keep
+  indefinite retention (no backfill); **zero-retention is deferred to Phase 2**, where it
+  means persist → deliver → purge rather than "don't write" (P-5). Purging redacts
+  submission content to a tombstone instead of deleting the row, so delivery history
+  survives. See [DECISIONS.md](DECISIONS.md) D-011. **Phase 0 is unaffected** —
+  `form.retentionDays` stays nullable with nothing purging it, and configurable retention
+  remains on the deferred list above.

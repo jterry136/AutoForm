@@ -284,4 +284,4 @@ Delivery-health notifications, manual replay, submission export, configurable re
 - **R-3.** Stored submissions create privacy and compliance obligations; retention defaults and deletion tooling (§7.4) must be settled early.
 - **Q-1.** Should the canonical form definition be mandatory for all forms, or remain optional for BYO forms (affects validation guarantees and inbox labeling)?
 - **Q-2.** Which transactional email provider(s) to standardize on for the email connector, balancing free-tier limits against deliverability?
-- **Q-3.** What is the default submission retention period, and is zero-retention offered from Phase 0 or deferred to Phase 2?
+- **Q-3.** ~~What is the default submission retention period, and is zero-retention offered from Phase 0 or deferred to Phase 2?~~ **Resolved:** new forms default to **90 days**; existing forms keep indefinite retention; **zero-retention is deferred to Phase 2** and means persist → deliver → purge (P-5 still holds). Purging **redacts** submission content to a tombstone rather than deleting the row, so delivery history survives (NFR-OBS-1). See [DECISIONS.md](DECISIONS.md) **D-011**.

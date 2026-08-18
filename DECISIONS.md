@@ -60,6 +60,86 @@ serializers — a streaming export would move the rules into the transport.
 
 ---
 
+## D-011 — Retention: 90-day default, purge by redaction, zero-retention on terminal delivery
+
+**Date:** 2026-08-17 · **Status:** Accepted · **Resolves:** Q-3 (REQUIREMENTS.md §12) ·
+**Covers:** FR-SUB-3, NFR-PRIV-1 · **Risk:** R-3 · **Constrained by:** P-5, NFR-OBS-1
+
+**Decision.** Five parts, settled together because they only make sense together.
+
+1. **Domain and default.** `form.retentionDays` means: `null` = retain indefinitely,
+   `0` = zero-retention, `1…3650` = that many days. **Forms created from now on default
+   to 90 days.** Existing forms are **not backfilled** — the migration leaves their `null`
+   in place, so no submission stored under the old "indefinite" policy is deleted by the
+   act of adopting this one. Owners opt back into indefinite retention explicitly.
+
+2. **Zero-retention means persist → deliver → purge**, never "don't write" (P-5 is not
+   negotiable). A `0` submission is purged once **every** delivery attempt for it has
+   reached a terminal state (`succeeded` or `dead_letter`), or at a hard ceiling of
+   **24 hours** after receipt if a destination is still retrying or stuck. The ceiling is
+   generous against the retry envelope (5 attempts, ≤5 min backoff — D-006), so it fires
+   only when something is wrong.
+
+3. **Purge is redaction to a tombstone, not `DELETE`.** It clears the content columns of
+   `submission` (`raw_body`, `normalized_payload`, `referer`, `client_fingerprint`,
+   `user_agent`) and stamps a `purged_at`; the row and its `delivery_attempt` rows survive.
+   On the attempt rows, `response_body` is cleared — a destination can echo the payload
+   back — while `status`, `attempt`, `response_status`, timings and `error` are kept:
+   connector errors are AutoForm's own message text, not submitted content.
+
+4. **Retention is a property of the data, not of when the policy was set.** Shortening a
+   form's window applies **retroactively** on the next purge pass; a form moved from 365
+   to 30 days loses everything older than 30 days within minutes. The dashboard must warn
+   before saving a reduction, and before enabling zero-retention.
+
+5. **Purge runs in-process, on the same model as delivery** (D-006) — a separate pass
+   beside the poller, on a slower cadence (target: every 5 minutes), batched with a
+   per-pass row cap. It is idempotent (`purged_at is null and created_at < cutoff`), so
+   concurrent instances duplicate work at worst, never corrupt. No external cron.
+
+**Rationale.** R-3 makes retention defaults load-bearing, so the default has to be a
+choice rather than an accident of a nullable column. A bounded default is the right one:
+AutoForm is a **bridge**, and the durable copy of a submission is the one sitting in the
+destination the owner chose. The inbox is a safety net for delivery failure, replay and
+audit — 90 days is generous for that job, and unbounded storage of other people's personal
+data on a free service (C-1) is a liability with no matching benefit.
+
+Redaction rather than deletion is what lets retention and observability coexist.
+`delivery_attempt` cascades on submission delete, so a hard `DELETE` would silently destroy
+the delivery history NFR-OBS-1 and delivery-health detection depend on, and would make
+"12 submissions received, 3 dead-lettered" unreconstructable. A tombstone keeps the
+counts, the timeline and the failure record while holding no personal data — and it lets
+the inbox say *"content purged"* instead of pretending the submission never arrived.
+Deleting rows outright stays the tool for the **deletion-on-request** case (NFR-PRIV-2),
+which is a different requirement with a different answer.
+
+Running the pass in-process follows D-006 rather than inventing a second operational model
+for one sweep — no extra infrastructure, nothing new to deploy (C-1/C-3).
+
+**Implications.**
+- A purged submission **cannot** be shown in the inbox, exported (FR-SUB-4) or replayed
+  (FR-DEL-5). The inbox lists tombstones as purged rows with their delivery state intact;
+  export skips their payload columns rather than emitting a misleading blank row; replay
+  of a purged submission is refused, not attempted.
+- **Any code that reads submission content must handle a tombstone.** `purged_at != null`
+  means "content is gone", which is not the same as "no submission" and not the same as
+  "empty payload".
+- Retention is **best-effort promptness, not a hard guarantee**: the pass only runs while
+  an app instance is running, so an instance that sleeps or scales to zero defers purging
+  until it wakes. The contract is "kept for *at least* N days, deleted shortly after",
+  and self-hosting docs must say so.
+- Zero-retention data is reachable in the inbox for the few minutes between terminal
+  delivery and the next pass. That is inherent to a polling model; anything tighter would
+  mean purging inside the delivery path, which P-3 rules out.
+- The purge pass needs its own tunables (cadence, batch cap, the 24h zero-retention
+  ceiling) in the same place as the queue's, and the same "not yet env-driven" caveat
+  applies (D-006).
+- Schema work this implies — `submission.purged_at`, a default on `form.retention_days`,
+  an index supporting the cutoff scan — belongs to the retention chunk, generated as a
+  Drizzle migration, never hand-written SQL.
+
+---
+
 ## D-010 — Delivery health: consecutive dead-letters, persisted alert de-duplication
 
 **Date:** 2026-08-17 · **Status:** Accepted · **Covers:** FR-NOTIF-1, NFR-OBS-1 ·
@@ -105,7 +185,6 @@ about (NFR-REL-3's spirit). The read-modify-write happens inside a transaction o
   once per submission. Lower it per deployment via env if that is too quiet.
 - `destination_health` carries no submission content — only counts, timestamps, and the
   connector's own error text.
-
 ## D-009 — Spam protection: silent honeypot, in-process rate limiting
 
 **Date:** 2026-06-25 · **Status:** Accepted · **Covers:** FR-SPAM-1/2 · **Risk:** R-2
