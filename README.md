@@ -4,11 +4,16 @@ A lightweight, free, open-source **form-to-webhook bridge**: drop a simple HTML 
 any site and have submissions reliably routed to Slack, Airtable, email, or any webhook —
 with no backend on your side.
 
-> **Status:** Phase 0 (MVP) core is in place — submission ingestion, asynchronous delivery
+> **Status:** Phase 0 (MVP) is **complete** — submission ingestion, asynchronous delivery
 > with retries and dead-lettering, webhook + email connectors, a dashboard, and the
-> universal (no-JS) embed tier. See [MVP.md](MVP.md). Full spec in
-> [REQUIREMENTS.md](REQUIREMENTS.md); architecture and conventions in
-> [CLAUDE.md](CLAUDE.md); design decisions in [DECISIONS.md](DECISIONS.md).
+> universal (no-JS) embed tier ([MVP.md](MVP.md)). **Phase 2 — polish and reach — is in
+> progress**: submission export, configurable retention, delivery-health notifications,
+> self-hosting docs, and the community-connector pathway ([PHASE2.md](PHASE2.md)).
+> **Phase 1** — visual builder, iframe and JS-snippet embed tiers, Slack and Airtable
+> connectors, origin checks and CAPTCHA — is planned but **not started**
+> ([PHASE1.md](PHASE1.md)). Full spec in [REQUIREMENTS.md](REQUIREMENTS.md); architecture
+> and conventions in [CLAUDE.md](CLAUDE.md); design decisions in
+> [DECISIONS.md](DECISIONS.md).
 
 **New here? Start with the [getting-started guide](docs/getting-started.md).**
 

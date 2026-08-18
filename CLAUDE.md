@@ -11,13 +11,18 @@ public ingestion endpoint per form, validates and filters spam, persists every
 submission, and delivers it asynchronously to one or more destinations.
 
 - **Source of truth for requirements:** [REQUIREMENTS.md](REQUIREMENTS.md).
-- **Current allowed scope:** [MVP.md](MVP.md).
+- **Current allowed scope:** [PHASE2.md](PHASE2.md) — Phase 0 (MVP) is complete; see
+  [MVP.md](MVP.md) for what it covered.
 - **Project-wide design decisions:** [DECISIONS.md](DECISIONS.md).
 
-> **Hard scope rule:** Only **Phase 0 / MVP** work is in scope right now. Do **not**
-> build Phase 1 or Phase 2 features (visual builder, iframe/JS-snippet embed tiers,
-> Slack/Airtable connectors, OAuth, CAPTCHA, theming, export, replay, notifications,
-> templates). If a change seems to require one of those, stop and confirm scope first.
+> **Hard scope rule:** **Phase 2** work — export, retention, delivery-health
+> notifications, manual replay, self-hosting docs, the community-connector pathway — is in
+> scope, on top of the completed Phase 0 core. Do **not** build **Phase 1** features
+> (visual builder, iframe/JS-snippet embed tiers, Slack/Airtable connectors, OAuth,
+> CAPTCHA, iframe theming, starter templates): they are planning only
+> ([PHASE1.md](PHASE1.md)), and some Phase 2 issue bodies reference them as if they
+> already exist. If a change seems to require one, stop and confirm scope first.
+> REQUIREMENTS.md §4.2 is out of scope permanently, in every phase.
 
 ## Tech stack
 
