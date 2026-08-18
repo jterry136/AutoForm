@@ -51,6 +51,13 @@ header injection, and submitted values are HTML-escaped in the HTML part (NFR-SE
 **Retries:** Resend `429`/`5xx` and transport errors are retried; other API errors (e.g. an
 invalid address) are permanent.
 
+## When a destination keeps failing
+
+Once a destination has dead-lettered several deliveries in a row it is flagged **Failing**
+on the form's dashboard page and its owner is emailed once. See
+[Notifications](notifications.md) for the thresholds, what the email contains, and the
+per-form opt-out.
+
 ## Adding a connector (contributors)
 
 Every connector implements one narrow interface from `src/connectors/types.ts`:

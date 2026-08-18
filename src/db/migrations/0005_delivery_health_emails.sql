@@ -1,0 +1,1 @@
+ALTER TABLE "form" ADD COLUMN "delivery_health_emails" boolean DEFAULT true NOT NULL;

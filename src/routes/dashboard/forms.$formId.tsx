@@ -1,6 +1,16 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { type } from 'arktype'
-import { ArrowLeft, Copy, Download, Pencil, Plus, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  Bell,
+  BellOff,
+  Copy,
+  Download,
+  Pencil,
+  Plus,
+  Trash2,
+  TriangleAlert,
+} from 'lucide-react'
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
@@ -73,6 +83,7 @@ import {
   getFormFn,
   listInboxFn,
   renameFormFn,
+  setDeliveryHealthEmailsFn,
   setRetentionFn,
 } from '~/lib/server-fns'
 import { formDefinitionSchema } from '~/lib/validation'
@@ -276,16 +287,20 @@ function FormDetail() {
               {form.destinations.map((d) => (
                 <li
                   key={d.id}
-                  className="flex items-center justify-between py-2"
+                  className="flex items-start justify-between gap-4 py-2"
                 >
-                  <div>
-                    <p className="text-sm font-medium">{d.name}</p>
-                    <p className="text-xs text-muted-foreground">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium">{d.name}</p>
+                      <DestinationHealthBadge health={d.health} />
+                    </div>
+                    <p className="truncate text-xs text-muted-foreground">
                       <Badge variant="outline" className="mr-2">
                         {d.type}
                       </Badge>
                       {JSON.stringify(d.config)}
                     </p>
+                    <DestinationHealthWarning health={d.health} />
                   </div>
                   <Button
                     variant="ghost"
@@ -299,6 +314,12 @@ function FormDetail() {
               ))}
             </ul>
           )}
+
+          <DeliveryHealthEmailsToggle
+            formId={form.id}
+            enabled={form.deliveryHealthEmails}
+            onChanged={() => router.invalidate()}
+          />
         </CardContent>
       </Card>
 
@@ -689,6 +710,130 @@ function ConfirmDelete({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  )
+}
+
+/**
+ * Delivery health for one destination, as the dashboard receives it. Counts and
+ * timestamps only — `destination_health` never holds submission content (D-010).
+ */
+type DestinationHealth = {
+  unhealthySince: Date | string | null
+  consecutiveDeadLetters: number
+  lastError: string | null
+  lastDeadLetterAt: Date | string | null
+} | null
+
+/** A destination is flagged unhealthy exactly while `unhealthySince` is set. */
+function isUnhealthy(health: DestinationHealth): boolean {
+  return health?.unhealthySince != null
+}
+
+/**
+ * Status badge for a failing destination.
+ *
+ * The state is carried by the icon and the word "Failing", not by the colour
+ * (WCAG 2.1 AA 1.4.1, NFR-A11Y-1/2) — the destructive tint is reinforcement
+ * only. A healthy destination renders nothing rather than a green "OK" badge, so
+ * a problem is the only thing that draws the eye.
+ */
+function DestinationHealthBadge({ health }: { health: DestinationHealth }) {
+  if (!isUnhealthy(health)) return null
+  return (
+    <Badge variant="destructive">
+      <TriangleAlert className="size-3" aria-hidden="true" />
+      Failing
+    </Badge>
+  )
+}
+
+/** The detail behind the badge: how long, how many, and the last error. */
+function DestinationHealthWarning({ health }: { health: DestinationHealth }) {
+  if (!health || !isUnhealthy(health)) return null
+
+  const since = health.unhealthySince
+    ? new Date(health.unhealthySince).toLocaleString()
+    : null
+
+  return (
+    <p className="mt-1 text-xs text-destructive">
+      {health.consecutiveDeadLetters === 1
+        ? '1 delivery was'
+        : `${health.consecutiveDeadLetters} deliveries in a row were`}{' '}
+      given up on{since ? `, starting ${since}` : ''}. Check the destination’s
+      configuration — AutoForm does not retry deliveries it has already given up
+      on.
+      {health.lastError ? (
+        <>
+          {' '}
+          Last error: <span className="font-mono">{health.lastError}</span>
+        </>
+      ) : null}
+    </p>
+  )
+}
+
+/**
+ * Per-form opt-out for delivery-failure emails (FR-NOTIF-1, D-013).
+ *
+ * A pressed-state button rather than a checkbox: the current state is announced
+ * by `aria-pressed` and spelled out in the label, so it survives both screen
+ * readers and a monochrome display.
+ */
+function DeliveryHealthEmailsToggle({
+  formId,
+  enabled,
+  onChanged,
+}: {
+  formId: string
+  enabled: boolean
+  onChanged: () => void
+}) {
+  const [pending, setPending] = useState(false)
+
+  async function toggle() {
+    setPending(true)
+    const res = await setDeliveryHealthEmailsFn({
+      data: { formId, enabled: !enabled },
+    })
+    setPending(false)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    toast.success(
+      enabled
+        ? 'Delivery failure emails turned off.'
+        : 'Delivery failure emails turned on.',
+    )
+    onChanged()
+  }
+
+  return (
+    <div className="mt-4 flex items-start justify-between gap-4 border-t pt-4">
+      <div>
+        <p className="text-sm font-medium">Delivery failure emails</p>
+        <p className="text-xs text-muted-foreground">
+          Email the form owner when a destination keeps failing. Turning this
+          off only stops the email — failing destinations are still flagged
+          here.
+        </p>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        aria-pressed={enabled}
+        disabled={pending}
+        onClick={toggle}
+      >
+        {enabled ? (
+          <Bell className="size-4" aria-hidden="true" />
+        ) : (
+          <BellOff className="size-4" aria-hidden="true" />
+        )}
+        {enabled ? 'On' : 'Off'}
+      </Button>
+    </div>
   )
 }
 

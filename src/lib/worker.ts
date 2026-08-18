@@ -6,13 +6,19 @@
  *
  * All are idempotent across the process, and all are a no-op when DATABASE_URL is
  * absent so the dev server still boots without a database. The queue,
- * connectors, and purge modules (which import the DB client + secrets) are
- * loaded lazily, after the DATABASE_URL check, so an unconfigured environment
- * never triggers env validation at import time.
+ * connectors, purge and notification modules (which import the DB client +
+ * secrets) are loaded lazily, after the DATABASE_URL check, so an unconfigured
+ * environment never triggers env validation at import time.
  *
  * They run on the same in-process model (D-006): no external scheduler, and a
  * purge pass is the same shape of work as the poller — cheap, idempotent, and
  * safe to skip a beat.
+ *
+ * This is also where delivery-health notifications are wired in (FR-NOTIF-1):
+ * the queue takes the notifier as an option rather than importing a mail
+ * provider, so detection and delivery stay testable without one (D-010 section 4).
+ * Notifications degrade to a logged no-op when RESEND_API_KEY is unset —
+ * submissions still deliver.
  */
 
 declare global {
@@ -34,12 +40,17 @@ export async function ensureDeliveryWorker(): Promise<void> {
       { startDeliveryWorker },
       { dispatchDelivery },
       { startZeroRetentionPurge },
+      { deliveryHealthNotifier },
     ] = await Promise.all([
       import('~/lib/queue'),
       import('~/connectors'),
       import('~/lib/purge'),
+      import('~/lib/delivery-notifications'),
     ])
-    startDeliveryWorker({ dispatch: dispatchDelivery })
+    startDeliveryWorker({
+      dispatch: dispatchDelivery,
+      notify: deliveryHealthNotifier,
+    })
     startZeroRetentionPurge()
   } catch (err) {
     globalThis.__autoformWorkerStarted = false

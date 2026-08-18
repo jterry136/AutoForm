@@ -10,6 +10,7 @@ import {
   listFormsForUser,
   renameFormForUser,
   setRetentionForUser,
+  setDeliveryHealthEmailsForUser,
 } from '~/lib/forms'
 import {
   deleteAllSubmissionsForForm,
@@ -57,6 +58,7 @@ export const getFormFn = createServerFn({ method: 'GET' })
       redirectUrl: form.redirectUrl,
       honeypotField: form.honeypotField,
       retentionDays: form.retentionDays,
+      deliveryHealthEmails: form.deliveryHealthEmails,
       createdAt: form.createdAt,
       definition: (form.definition?.definition ?? null) as JsonObject | null,
       destinations: form.destinations.map((d) => ({
@@ -66,6 +68,16 @@ export const getFormFn = createServerFn({ method: 'GET' })
         config: d.config as JsonObject,
         enabled: d.enabled,
         hasCredentials: d.encryptedCredentials !== null,
+        // Counts and timestamps only — `destination_health` never holds
+        // submission content (D-010).
+        health: d.health
+          ? {
+              unhealthySince: d.health.unhealthySince,
+              consecutiveDeadLetters: d.health.consecutiveDeadLetters,
+              lastError: d.health.lastError,
+              lastDeadLetterAt: d.health.lastDeadLetterAt,
+            }
+          : null,
       })),
     }
   })
@@ -89,6 +101,13 @@ export const setRetentionFn = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     const userId = await requireUserId()
     return setRetentionForUser(userId, data.formId, data.retentionDays)
+  })
+
+export const setDeliveryHealthEmailsFn = createServerFn({ method: 'POST' })
+  .validator((data: { formId: string; enabled: boolean }) => data)
+  .handler(async ({ data }) => {
+    const userId = await requireUserId()
+    return setDeliveryHealthEmailsForUser(userId, data.formId, data.enabled)
   })
 
 export const deleteFormFn = createServerFn({ method: 'POST' })
