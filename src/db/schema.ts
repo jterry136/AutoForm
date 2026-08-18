@@ -137,10 +137,13 @@ export const submission = pgTable(
     formId: uuid()
       .notNull()
       .references(() => form.id, { onDelete: 'cascade' }),
-    // Raw request body exactly as received (FR-ING-3).
-    rawBody: text().notNull(),
+    // Raw request body exactly as received (FR-ING-3). Nullable because a purge
+    // clears it in place (see purgedAt) — it is always written on ingestion.
+    rawBody: text(),
     contentType: text(),
-    // Structured key-value payload after normalization (FR-ING-2).
+    // Structured key-value payload after normalization (FR-ING-2). Emptied to
+    // `{}` by a purge; `purgedAt`, not an empty object, is the authority on
+    // whether content is gone.
     normalizedPayload: jsonb().$type<Record<string, unknown>>().notNull(),
     // Metadata (FR-ING-5). clientFingerprint is a coarse, privacy-conscious
     // identifier (e.g. hashed IP) for abuse handling.
@@ -149,9 +152,18 @@ export const submission = pgTable(
     userAgent: text(),
     // 'clean' | 'honeypot' | 'rate_limited' | … (FR-SPAM-1/2).
     spamVerdict: text().notNull().default('clean'),
+    // Retention tombstone (FR-SUB-3, NFR-PRIV-1, Q-3 retention decision D-011).
+    // null = content intact. Non-null = the content columns above were cleared
+    // at this time; the row and its delivery history deliberately survive so
+    // counts and failure records stay reconstructable (NFR-OBS-1).
+    purgedAt: timestamp(),
     createdAt: timestamp().notNull().defaultNow(),
   },
-  (t) => [index('submission_form_id_created_at_idx').on(t.formId, t.createdAt)],
+  (t) => [
+    index('submission_form_id_created_at_idx').on(t.formId, t.createdAt),
+    // Supports the purge sweep's "not yet purged, oldest first" scan.
+    index('submission_purged_at_created_at_idx').on(t.purgedAt, t.createdAt),
+  ],
 )
 
 // ─── DeliveryAttempt (also the delivery queue) ───────────────────────────────

@@ -19,13 +19,15 @@ decision, why, and what it implies. Newest at the top.
 signed-in GET — `/api/forms/{formId}/export?format=csv|json` — surfaced from the dashboard
 inbox card, and it follows five rules:
 
-1. **Columns derive from the form definition (P-1), in definition order**, after three
-   fixed metadata columns: `submission_id`, `submitted_at` (ISO-8601 UTC), and
-   `delivery_status` (the rolled-up per-submission state). Every defined field gets a
-   column even when no exported row filled it — the file's shape is a property of the
-   form, not of the batch. Payload keys **not** in the definition (BYO or legacy
-   submissions) are appended after them, sorted lexicographically so the header is
-   deterministic.
+1. **Columns derive from the form definition (P-1), in definition order**, after four
+   fixed metadata columns: `submission_id`, `submitted_at` (ISO-8601 UTC),
+   `delivery_status` (the rolled-up per-submission state), and `content_status`
+   (`retained` / `purged` — added by D-011, which exports a purged submission as a
+   labelled tombstone with empty payload cells rather than dropping the row). Every
+   defined field gets a column even when no exported row filled it — the file's shape is
+   a property of the form, not of the batch. Payload keys **not** in the definition (BYO
+   or legacy submissions) are appended after them, sorted lexicographically so the
+   header is deterministic.
 2. **CSV formula injection is neutralized, not merely escaped.** A value starting with
    `=`, `+`, `-`, `@`, TAB, or CR is prefixed with `'` so spreadsheets treat submitted
    content as text. Submissions are attacker-controlled, so this is a security rule

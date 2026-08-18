@@ -16,7 +16,14 @@ import type { FormDefinition } from '~/lib/validation'
  *   in the definition (BYO or legacy submissions) are appended after them,
  *   sorted lexicographically so the header is deterministic.
  * - **Fixed metadata columns lead**: `submission_id`, `submitted_at` (ISO-8601
- *   UTC), `delivery_status` — the rolled-up per-submission delivery state.
+ *   UTC), `delivery_status` — the rolled-up per-submission delivery state — and
+ *   `content_status`.
+ * - **A purged submission exports as a labelled tombstone** (FR-SUB-3). Its
+ *   content is gone, so its payload cells are empty and `content_status` reads
+ *   `purged` rather than `retained`. Dropping the row would misreport how many
+ *   submissions a form received; emitting it unlabelled would read as a form
+ *   somebody submitted blank. Its payload keys never widen the header either —
+ *   there is nothing left to widen it with.
  * - **Non-scalar payload values are JSON-stringified** in CSV (a multiselect
  *   renders as `["a","b"]`). JSON export keeps them structured.
  * - **CSV formula injection is neutralized**, not just escaped: a value opening
@@ -35,6 +42,8 @@ export interface ExportableSubmission {
   createdAt: Date
   normalizedPayload: JsonObject
   deliveryStatus: DeliverySummary
+  /** Non-null once the retention policy purged the content (D-011). */
+  purgedAt?: Date | null
 }
 
 /** Leading, fixed columns, before the payload columns. */
@@ -42,7 +51,15 @@ export const EXPORT_METADATA_COLUMNS = [
   'submission_id',
   'submitted_at',
   'delivery_status',
+  'content_status',
 ] as const
+
+/** Whether a submission still carries its content, for the export label. */
+export type ExportContentStatus = 'retained' | 'purged'
+
+function contentStatus(s: ExportableSubmission): ExportContentStatus {
+  return s.purgedAt == null ? 'retained' : 'purged'
+}
 
 const CRLF = '\r\n'
 
@@ -62,6 +79,7 @@ export function deriveExportColumns(
 
   const extra = new Set<string>()
   for (const s of submissions) {
+    if (contentStatus(s) === 'purged') continue
     for (const key of Object.keys(s.normalizedPayload)) {
       if (!known.has(key)) extra.add(key)
     }
@@ -109,12 +127,16 @@ export function serializeSubmissionsToCsv(
   const header = [...EXPORT_METADATA_COLUMNS, ...columns].map(csvField)
 
   const rows = submissions.map((s) => {
+    const purged = contentStatus(s) === 'purged'
     const meta = [
       s.id,
       s.createdAt.toISOString(),
       s.deliveryStatus,
+      purged ? 'purged' : 'retained',
     ] satisfies string[]
-    const payload = columns.map((c) => renderCell(s.normalizedPayload[c]))
+    const payload = columns.map((c) =>
+      purged ? '' : renderCell(s.normalizedPayload[c]),
+    )
     return [...meta, ...payload].map(csvField).join(',')
   })
 
@@ -126,6 +148,8 @@ export interface ExportedSubmissionJson {
   id: string
   submittedAt: string
   deliveryStatus: DeliverySummary
+  contentStatus: ExportContentStatus
+  /** Always empty when `contentStatus` is `purged`. */
   payload: JsonObject
 }
 
@@ -137,16 +161,20 @@ export function toExportJson(
   const columns = deriveExportColumns(definition, submissions)
 
   return submissions.map((s) => {
+    const status = contentStatus(s)
     // Rebuild the payload in column order so key order is stable across rows.
     const payload: JsonObject = {}
-    for (const column of columns) {
-      const value = s.normalizedPayload[column]
-      if (value !== undefined) payload[column] = value
+    if (status === 'retained') {
+      for (const column of columns) {
+        const value = s.normalizedPayload[column]
+        if (value !== undefined) payload[column] = value
+      }
     }
     return {
       id: s.id,
       submittedAt: s.createdAt.toISOString(),
       deliveryStatus: s.deliveryStatus,
+      contentStatus: status,
       payload,
     }
   })

@@ -193,35 +193,49 @@ async function claimDueAttempts(limit: number): Promise<DeliveryAttemptRow[]> {
 }
 
 /**
- * Load the submission + destination for a claimed attempt and decrypt the
- * destination's credentials (P-2: decrypt only at delivery time). Returns null
- * if the submission or destination no longer exists.
+ * Why a claimed attempt has no deliverable context. `purged` is distinct from
+ * `missing`: the submission is still there, its content is not (retention
+ * tombstone — see src/lib/purge.ts), and shipping the emptied payload would be
+ * worse than failing.
  */
-async function buildContext(
-  row: DeliveryAttemptRow,
-): Promise<DeliveryContext | null> {
+type ContextResult =
+  | { kind: 'ok'; context: DeliveryContext }
+  | { kind: 'missing' }
+  | { kind: 'purged' }
+
+/**
+ * Load the submission + destination for a claimed attempt and decrypt the
+ * destination's credentials (P-2: decrypt only at delivery time).
+ */
+async function buildContext(row: DeliveryAttemptRow): Promise<ContextResult> {
   const [dest] = await db
     .select()
     .from(destination)
     .where(eq(destination.id, row.destinationId))
-  if (!dest) return null
+  if (!dest) return { kind: 'missing' }
 
   const [sub] = await db
     .select()
     .from(submission)
     .where(eq(submission.id, row.submissionId))
-  if (!sub) return null
+  if (!sub) return { kind: 'missing' }
+  // A zero-retention submission is purged at the 24h ceiling even if a
+  // destination is still stuck, so this is reachable — and terminal.
+  if (sub.purgedAt !== null) return { kind: 'purged' }
 
   return {
-    attemptId: row.id,
-    attempt: row.attempt,
-    submissionId: sub.id,
-    destinationType: dest.type,
-    config: dest.config,
-    credentials: dest.encryptedCredentials
-      ? decrypt(dest.encryptedCredentials)
-      : null,
-    payload: sub.normalizedPayload,
+    kind: 'ok',
+    context: {
+      attemptId: row.id,
+      attempt: row.attempt,
+      submissionId: sub.id,
+      destinationType: dest.type,
+      config: dest.config,
+      credentials: dest.encryptedCredentials
+        ? decrypt(dest.encryptedCredentials)
+        : null,
+      payload: sub.normalizedPayload,
+    },
   }
 }
 
@@ -297,9 +311,9 @@ async function processClaimed(
   dispatch: DeliveryDispatcher,
   notify: DeliveryHealthNotifier = logOnlyNotifier,
 ): Promise<void> {
-  let context: DeliveryContext | null
+  let resolved: ContextResult
   try {
-    context = await buildContext(row)
+    resolved = await buildContext(row)
   } catch (err) {
     // Decrypt/config failures are permanent — don't spin on them.
     await finalize(
@@ -314,13 +328,16 @@ async function processClaimed(
     return
   }
 
-  if (!context) {
+  if (resolved.kind !== 'ok') {
     await finalize(
       row,
       {
         ok: false,
         retryable: false,
-        error: 'Submission or destination no longer exists.',
+        error:
+          resolved.kind === 'purged'
+            ? 'Submission content was purged by the retention policy before delivery completed.'
+            : 'Submission or destination no longer exists.',
       },
       notify,
     )
@@ -329,7 +346,7 @@ async function processClaimed(
 
   let outcome: DeliveryOutcome
   try {
-    outcome = await dispatch(context)
+    outcome = await dispatch(resolved.context)
   } catch (err) {
     // An unexpected throw from a connector is treated as transient.
     outcome = { ok: false, retryable: true, error: errorMessage(err) }

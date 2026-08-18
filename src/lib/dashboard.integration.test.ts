@@ -256,9 +256,11 @@ describe('submission inbox (FR-SUB-2, NFR-OBS-1)', () => {
 
     const inbox = await listSubmissionsForForm(user, form.id)
     expect(inbox).not.toBeNull()
-    expect(inbox).toHaveLength(1)
-    expect(inbox![0]?.deliveryStatus).toBe('delivered')
-    expect(inbox![0]?.deliveries[0]?.status).toBe('succeeded')
+    expect(inbox?.retentionDays).toBe(DEFAULT_RETENTION_DAYS)
+    expect(inbox?.submissions).toHaveLength(1)
+    expect(inbox?.submissions[0]?.deliveryStatus).toBe('delivered')
+    expect(inbox?.submissions[0]?.deliveries[0]?.status).toBe('succeeded')
+    expect(inbox?.submissions[0]?.purgedAt).toBeNull()
   })
 
   it('uses the latest attempt per destination for the rollup', async () => {
@@ -288,7 +290,7 @@ describe('submission inbox (FR-SUB-2, NFR-OBS-1)', () => {
       },
     ])
     const inbox = await listSubmissionsForForm(user, form.id)
-    expect(inbox![0]?.deliveryStatus).toBe('delivered')
+    expect(inbox?.submissions[0]?.deliveryStatus).toBe('delivered')
   })
 
   it('returns null for a non-owner', async () => {

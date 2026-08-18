@@ -174,7 +174,7 @@ describe('buildExportResponse (authenticated download)', () => {
 
     const lines = (await res.text()).trim().split('\r\n')
     expect(lines[0]).toBe(
-      'submission_id,submitted_at,delivery_status,email,message',
+      'submission_id,submitted_at,delivery_status,content_status,email,message',
     )
     expect(lines).toHaveLength(4)
     expect(lines[1]).toContain('third@example.test')
@@ -215,7 +215,7 @@ describe('buildExportResponse (authenticated download)', () => {
     const csv = await buildExportResponse(owner, form.id, 'csv', { now })
     expect(csv.status).toBe(200)
     expect(await csv.text()).toBe(
-      'submission_id,submitted_at,delivery_status,email,message\r\n',
+      'submission_id,submitted_at,delivery_status,content_status,email,message\r\n',
     )
 
     const json = await buildExportResponse(owner, form.id, 'json', { now })

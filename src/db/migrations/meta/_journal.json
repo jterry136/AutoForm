@@ -29,6 +29,13 @@
       "when": 1787072339093,
       "tag": "0003_retention_days_default",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787072668805,
+      "tag": "0004_submission_purge_tombstone",
+      "breakpoints": true
     }
   ]
 }

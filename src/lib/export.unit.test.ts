@@ -90,12 +90,13 @@ describe('serializeSubmissionsToCsv (FR-SUB-4)', () => {
   it('leads with the fixed metadata columns, then payload columns', () => {
     const csv = serializeSubmissionsToCsv(definition, [])
     expect(rows(csv)).toEqual([
-      'submission_id,submitted_at,delivery_status,email,message,plan,tags,subscribe',
+      'submission_id,submitted_at,delivery_status,content_status,email,message,plan,tags,subscribe',
     ])
     expect(EXPORT_METADATA_COLUMNS).toEqual([
       'submission_id',
       'submitted_at',
       'delivery_status',
+      'content_status',
     ])
   })
 
@@ -107,7 +108,7 @@ describe('serializeSubmissionsToCsv (FR-SUB-4)', () => {
       ),
     ])
     expect(rows(csv)[1]).toBe(
-      'sub_x,2026-07-01T12:34:56.000Z,pending,a@example.test,,,,true',
+      'sub_x,2026-07-01T12:34:56.000Z,pending,retained,a@example.test,,,,true',
     )
   })
 
@@ -187,6 +188,50 @@ describe('serializeSubmissionsToCsv (FR-SUB-4)', () => {
   })
 })
 
+describe('purged submissions export as labelled tombstones (FR-SUB-3)', () => {
+  const purgedAt = new Date('2026-07-02T00:00:00.000Z')
+
+  it('keeps the row, empties the payload cells, and labels it purged', () => {
+    const csv = serializeSubmissionsToCsv(definition, [
+      submission({}, { id: 'sub_p', deliveryStatus: 'delivered', purgedAt }),
+    ])
+    expect(rows(csv)).toHaveLength(2)
+    expect(rows(csv)[1]).toBe(
+      'sub_p,2026-07-01T12:34:56.000Z,delivered,purged,,,,,',
+    )
+  })
+
+  it('never leaks residual payload content from a tombstone', () => {
+    // Defence in depth: the row is emptied even if a caller hands us a payload
+    // alongside a purge stamp.
+    const csv = serializeSubmissionsToCsv(definition, [
+      submission({ email: 'leak@example.test' }, { purgedAt }),
+    ])
+    expect(csv).not.toContain('leak@example.test')
+  })
+
+  it('does not widen the header with a purged row’s keys', () => {
+    const columns = deriveExportColumns(definition, [
+      submission({ ghost: 'x' }, { purgedAt }),
+      submission({ email: 'a@example.test' }),
+    ])
+    expect(columns).not.toContain('ghost')
+  })
+
+  it('marks the tombstone in JSON with an empty payload', () => {
+    const [row] = toExportJson(definition, [
+      submission({}, { id: 'sub_p', deliveryStatus: 'failed', purgedAt }),
+    ])
+    expect(row).toEqual({
+      id: 'sub_p',
+      submittedAt: '2026-07-01T12:34:56.000Z',
+      deliveryStatus: 'failed',
+      contentStatus: 'purged',
+      payload: {},
+    })
+  })
+})
+
 describe('serializeSubmissionsToJson (FR-SUB-4)', () => {
   it('emits an array with a stable key order per submission', () => {
     const json = serializeSubmissionsToJson(definition, [
@@ -201,6 +246,7 @@ describe('serializeSubmissionsToJson (FR-SUB-4)', () => {
         id: 'sub_y',
         submittedAt: '2026-07-01T12:34:56.000Z',
         deliveryStatus: 'partial',
+        contentStatus: 'retained',
         payload: { email: 'a@example.test', tags: ['a'] },
       },
     ])
@@ -208,6 +254,7 @@ describe('serializeSubmissionsToJson (FR-SUB-4)', () => {
       'id',
       'submittedAt',
       'deliveryStatus',
+      'contentStatus',
       'payload',
     ])
   })

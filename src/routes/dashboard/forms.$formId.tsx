@@ -117,6 +117,11 @@ function FormDetail() {
 
   const endpoint = `${origin}/f/${form.publicId}`
 
+  // Retention shapes what the inbox can honestly show (FR-SUB-3): on a
+  // zero-retention form an empty list is the policy working, not a missing row.
+  const zeroRetention = inbox?.retentionDays === 0
+  const inboxRows = inbox?.submissions ?? []
+
   const parsedDefinition = formDefinitionSchema(form.definition)
   const embedHtml =
     parsedDefinition instanceof type.errors
@@ -274,18 +279,22 @@ function FormDetail() {
           <div>
             <CardTitle>Inbox</CardTitle>
             <CardDescription>
-              Stored submissions and their delivery status.
+              {zeroRetention
+                ? 'This form doesn’t retain submissions — each one is purged as soon as delivery finishes. Rows appear only while delivery is in flight.'
+                : 'Stored submissions and their delivery status.'}
             </CardDescription>
           </div>
           <ExportSubmissionsMenu
             formId={form.id}
-            submissionCount={inbox?.length ?? 0}
+            submissionCount={inboxRows.length}
           />
         </CardHeader>
         <CardContent>
-          {!inbox || inbox.length === 0 ? (
+          {inboxRows.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No submissions yet — there’s nothing to export.
+              {zeroRetention
+                ? 'Nothing retained. Delivered submissions live in your destinations, not here.'
+                : 'No submissions yet — there’s nothing to export.'}
             </p>
           ) : (
             <Table>
@@ -297,13 +306,19 @@ function FormDetail() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {inbox.map((s) => (
+                {inboxRows.map((s) => (
                   <TableRow key={s.id}>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                       {new Date(s.createdAt).toLocaleString()}
                     </TableCell>
                     <TableCell className="max-w-md truncate font-mono text-xs">
-                      {JSON.stringify(s.normalizedPayload)}
+                      {s.purgedAt ? (
+                        <span className="font-sans italic text-muted-foreground">
+                          Content purged {new Date(s.purgedAt).toLocaleString()}
+                        </span>
+                      ) : (
+                        JSON.stringify(s.normalizedPayload)
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <Badge variant={DELIVERY_BADGE[s.deliveryStatus].variant}>

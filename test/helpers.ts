@@ -42,6 +42,8 @@ export async function createForm(
     definition?: Record<string, unknown>
     honeypotField?: string
     redirectUrl?: string | null
+    /** null = indefinite (default), 0 = zero-retention, N = keep N days. */
+    retentionDays?: number | null
   } = {},
 ): Promise<{ id: string; publicId: string }> {
   const ownerId = await createOwner()
@@ -54,6 +56,7 @@ export async function createForm(
       name: 'Test Form',
       honeypotField: options.honeypotField ?? '_gotcha',
       redirectUrl: options.redirectUrl ?? null,
+      retentionDays: options.retentionDays ?? null,
     })
     .returning({ id: form.id, publicId: form.publicId })
   if (!row) throw new Error('failed to create form')
@@ -80,6 +83,7 @@ export async function addDestination(
 
 export async function insertSubmission(
   formId: string,
+  options: { createdAt?: Date } = {},
 ): Promise<{ id: string }> {
   const [row] = await db
     .insert(submission)
@@ -88,6 +92,7 @@ export async function insertSubmission(
       rawBody: 'email=a%40b.co',
       contentType: 'application/x-www-form-urlencoded',
       normalizedPayload: { email: 'a@b.co' },
+      ...(options.createdAt ? { createdAt: options.createdAt } : {}),
     })
     .returning({ id: submission.id })
   if (!row) throw new Error('failed to create submission')
