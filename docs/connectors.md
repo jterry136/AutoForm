@@ -19,9 +19,16 @@ POSTs the normalized submission to a URL you control as `application/json`.
 
 | Config | Required | Notes |
 |---|---|---|
-| `url` | yes | `http(s)` URL that receives the POST. |
+| `url` | yes | `http(s)` URL that receives the POST. Must resolve to a public address — see below. |
 | `headers` | no | Extra request headers (object of string values). |
 | Bearer token | no | Optional secret sent as `Authorization: Bearer <token>` (encrypted at rest). |
+
+**`url` is checked against private/internal networks (NFR-SEC-1, [DECISIONS.md](../DECISIONS.md)
+D-015).** Both when you add the destination and again on every delivery attempt (including
+after each redirect), AutoForm resolves the hostname and refuses to deliver if it — or any
+address it resolves to — is a loopback, private, link-local, or cloud-metadata address (e.g.
+`169.254.169.254`). This closes an SSRF hole where a webhook URL could otherwise turn the
+server into a proxy into its own network; there is no way to opt out of it.
 
 **Request:** `POST <url>` with header `content-type: application/json` and a body that is the
 normalized submission, e.g.:

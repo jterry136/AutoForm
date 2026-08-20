@@ -127,16 +127,22 @@ export const webhookConnector: Connector = {
     const headers: Record<string, string> = { 'content-type': 'application/json' }
     if (credentials) headers.authorization = `Bearer ${credentials}`
 
-    // 3. Call the destination — always with a timeout, always inside try/catch.
+    // 3. Call the destination — always with a timeout, always inside try/catch,
+    //    and through `fetchPublicOnly` rather than raw `fetch` whenever `url`
+    //    came from user config (see §3a below).
     let res: Response
     try {
-      res = await fetch(url, {
+      res = await fetchPublicOnly(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(TIMEOUT_MS), // 10s in the shipped connectors
+        timeoutMs: TIMEOUT_MS, // 10s in the shipped connectors
       })
     } catch (err) {
+      if (err instanceof SsrfBlockedError) {
+        // Can never succeed on retry — permanent.
+        return { ok: false, retryable: false, error: err.message }
+      }
       // Network error / timeout — transient.
       return { ok: false, retryable: true, error: `Webhook request failed: ${message(err)}` }
     }
@@ -160,7 +166,8 @@ export const webhookConnector: Connector = {
 Notes that generalize:
 
 - **Always set a timeout.** The worker claims an attempt with a 60-second stale-lock
-  window; a hung request stalls that slot. `AbortSignal.timeout()` is enough.
+  window; a hung request stalls that slot. `AbortSignal.timeout()` is enough
+  (`fetchPublicOnly`'s `timeoutMs` applies it for you).
 - **Prefer `fetch` over a vendor SDK** unless the SDK earns its weight. If you do use one
   (as [`email.ts`](../src/connectors/email.ts) uses `resend`), it must be a free-tier-
   compatible dependency (C-1), and you still own the error mapping.
@@ -169,6 +176,35 @@ Notes that generalize:
   interface, so the two cannot drift.
 - **Stay stateless.** No module-level mutable state, no caching between deliveries. The
   worker may process several attempts concurrently in one tick.
+
+### 3a. If your connector fetches a user-supplied URL (SSRF)
+
+Any config field that becomes a URL your connector calls is attacker-influenced — a form
+owner (or, if the field is ever exposed further, whoever fills out their form) could point
+it at your own server's internal network: a metadata endpoint, an admin panel on
+`localhost`, another service on the private network the app runs in. This is the class of
+bug fixed in [DECISIONS.md](../DECISIONS.md) D-015.
+
+If your connector calls a **fixed** endpoint (a vendor's API, as [`email.ts`](../src/connectors/email.ts)
+does via the Resend SDK), you don't need anything here — there's no user-controlled
+destination to abuse. If it POSTs to a **URL that comes from `config`** (as the webhook
+connector and the template do), route every call through `~/lib/ssrf-guard` instead of raw
+`fetch`:
+
+- **`validateConfig`** — call `assertPublicHttpUrl(url)` and surface its `error` if it
+  fails. This rejects non-http(s) schemes and resolves the hostname to reject
+  private/loopback/link-local/reserved addresses and cloud metadata IPs
+  (`169.254.169.254`).
+- **`deliver`** — call `fetchPublicOnly(url, init)` instead of `fetch(url, init)`. It
+  re-runs the same check immediately before connecting (DNS can point somewhere different
+  by delivery time than it did at config time) and again before following any redirect, so
+  a URL that looked clean at setup can't bounce to an internal address at delivery. It
+  throws `SsrfBlockedError` when a hop is blocked — treat that as a **permanent** failure
+  (`retryable: false`); no retry makes a forbidden destination reachable.
+
+Do not call the guard's exports directly to build your own allow/deny logic, and don't try
+to loosen it (e.g. by following redirects yourself with plain `fetch`) — the point of
+checking every hop is that a single check at config time is not enough.
 
 ## 4. Retry classification
 

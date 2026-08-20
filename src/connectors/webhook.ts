@@ -1,3 +1,8 @@
+import {
+  SsrfBlockedError,
+  assertPublicHttpUrl,
+  fetchPublicOnly,
+} from '~/lib/ssrf-guard'
 import type { DeliveryOutcome } from '~/lib/queue'
 import type { Connector, ConnectorInput } from './types'
 
@@ -8,6 +13,11 @@ import type { Connector, ConnectorInput } from './types'
  *
  * Retry classification (D-006/D-007): network/timeout and 408/429/5xx are
  * retryable; other 4xx are client errors that won't fix on retry.
+ *
+ * **SSRF (NFR-SEC-1).** `url` is entirely user-supplied, so both `validateConfig`
+ * and `deliver` route the request through `~/lib/ssrf-guard`, which rejects
+ * private/loopback/link-local/metadata addresses and re-checks after every
+ * redirect hop. See DECISIONS.md D-015.
  */
 
 const TIMEOUT_MS = 10_000
@@ -29,16 +39,12 @@ async function readPreview(res: Response): Promise<string | undefined> {
 export const webhookConnector: Connector = {
   type: 'webhook',
 
-  validateConfig(config) {
+  async validateConfig(config) {
     const url = getUrl(config)
     if (!url) return { ok: false, error: 'Webhook requires a "url".' }
-    try {
-      const { protocol } = new URL(url)
-      if (protocol !== 'http:' && protocol !== 'https:') {
-        return { ok: false, error: 'Webhook "url" must be http(s).' }
-      }
-    } catch {
-      return { ok: false, error: 'Webhook "url" is not a valid URL.' }
+    const check = await assertPublicHttpUrl(url)
+    if (!check.ok) {
+      return { ok: false, error: `Webhook "url" ${check.error}.` }
     }
     return { ok: true }
   },
@@ -72,13 +78,16 @@ export const webhookConnector: Connector = {
 
     let res: Response
     try {
-      res = await fetch(url, {
+      res = await fetchPublicOnly(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        timeoutMs: TIMEOUT_MS,
       })
     } catch (err) {
+      if (err instanceof SsrfBlockedError) {
+        return { ok: false, retryable: false, error: err.message }
+      }
       return {
         ok: false,
         retryable: true, // network error / timeout — transient

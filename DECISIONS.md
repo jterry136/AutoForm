@@ -10,6 +10,50 @@ decision, why, and what it implies. Newest at the top.
 
 ---
 
+## D-015 — Connectors reaching a user-supplied URL must route through a shared SSRF guard
+
+**Date:** 2026-08-20 · **Status:** Accepted · **Covers:** NFR-SEC-1 · **Builds on:** D-007
+(connector contract, retry classification)
+
+**Decision.** Any connector that fetches a URL taken from `destination.config` — today,
+the webhook connector, and any future connector shaped like it — must validate that URL
+with `~/lib/ssrf-guard` before every network attempt, not just once at configuration time.
+`assertPublicHttpUrl` resolves the hostname and rejects it if the URL is not http(s) or if
+any resolved address is loopback, private (RFC1918), link-local, carrier-grade NAT,
+documentation/benchmark, multicast, reserved, or the cloud metadata range
+(`169.254.169.254`) — covering AWS/GCP/Azure/DigitalOcean's metadata endpoints, all of
+which live in that block. `fetchPublicOnly` wraps `fetch` to run this check again
+immediately before connecting and again before following each redirect hop, capped at 5
+hops.
+
+**Rationale.** The webhook connector's `url` is entirely form-owner-controlled and, before
+this decision, was checked only for `http(s)` scheme. A destination pointed at
+`http://169.254.169.254/latest/meta-data/` or `http://localhost:5432` turned the server
+into a proxy into its own network, with the response body then stored and shown back in
+the dashboard — full SSRF, and the most severe finding of a pre-deployment security audit.
+A single check at `validateConfig` time is not sufficient on its own: DNS can resolve
+differently by delivery time (rebinding), and a URL that resolves publicly can still
+redirect to an internal address, so the check has to run per-hop, not once.
+
+**Implications.**
+- New connectors that call a **fixed** vendor endpoint (like `email.ts`'s use of the Resend
+  SDK) are unaffected — there is no user-controlled destination to guard.
+- New connectors that POST to a **config-supplied URL** must use `assertPublicHttpUrl` in
+  `validateConfig` and `fetchPublicOnly` in `deliver`, never raw `fetch` — see
+  [docs/connectors-authoring.md §3a](docs/connectors-authoring.md#3a-if-your-connector-fetches-a-user-supplied-url-ssrf).
+  The template (`src/connectors/_template.ts`) demonstrates the pattern.
+- A blocked URL is a **permanent** failure (`retryable: false`) — no retry count makes a
+  forbidden destination reachable, so this is a dead-letter, not a backoff.
+- `Connector.validateConfig` is now `ConfigCheckResult | Promise<ConfigCheckResult>`
+  (`src/connectors/types.ts`) because the check requires a DNS lookup; `addDestinationForUser`
+  (`src/lib/destinations.ts`) awaits it. Adding a destination now costs one DNS resolution.
+- This is deliberately **not configurable** — there is no environment variable or
+  destination-level opt-out. A form owner who legitimately needs to reach an internal
+  service is not a case AutoForm's hosted or self-hosted deployment model is meant to
+  support.
+
+---
+
 ## D-014 — One canonical environment reference, kept honest by a parity test
 
 **Date:** 2026-08-17 · **Status:** Accepted · **Covers:** FR-DOC-6 · **Constraint:** C-2
