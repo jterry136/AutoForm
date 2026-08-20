@@ -25,5 +25,7 @@ export interface Connector {
   /** Perform the destination-specific call. Must not throw for normal failures. */
   deliver(input: ConnectorInput): Promise<DeliveryOutcome>
   /** Optional setup-time validation (FR-CON-6), used by the dashboard later. */
-  validateConfig?(config: Record<string, unknown>): ConfigCheckResult
+  validateConfig?(
+    config: Record<string, unknown>,
+  ): ConfigCheckResult | Promise<ConfigCheckResult>
 }

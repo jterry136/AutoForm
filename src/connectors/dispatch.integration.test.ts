@@ -1,6 +1,14 @@
 import { type Server, createServer } from 'node:http'
 import { eq } from 'drizzle-orm'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 import { dispatchDelivery } from '~/connectors'
 import { db } from '~/db'
 import { deliveryAttempt } from '~/db/schema'
@@ -11,6 +19,17 @@ import {
   insertSubmission,
   resetDb,
 } from '../../test/helpers'
+
+// This test exercises the real dispatcher/queue/DB path end to end, so the
+// destination is a real local server on loopback — bypass the SSRF guard
+// (whose own blocking logic is covered in `~/lib/ssrf-guard.unit.test.ts`
+// and `webhook.ssrf.unit.test.ts`) rather than have it reject the test
+// fixture.
+vi.mock('~/lib/ssrf-guard', () => ({
+  SsrfBlockedError: class SsrfBlockedError extends Error {},
+  assertPublicHttpUrl: async () => ({ ok: true }),
+  fetchPublicOnly: (url: string, init: RequestInit) => fetch(url, init),
+}))
 
 let server: Server
 let baseUrl: string

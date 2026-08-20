@@ -52,7 +52,7 @@ describe('emailConnector failure paths', () => {
     expect(out).toMatchObject({ ok: false, retryable: false })
   })
 
-  it('validateConfig rejects a missing recipient', () => {
-    expect(emailConnector.validateConfig?.({}).ok).toBe(false)
+  it('validateConfig rejects a missing recipient', async () => {
+    expect((await emailConnector.validateConfig?.({}))?.ok).toBe(false)
   })
 })

@@ -1,5 +1,13 @@
 import { type Server, createServer } from 'node:http'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 import { templateConnector } from '~/connectors/_template'
 
 /**
@@ -13,7 +21,30 @@ import { templateConnector } from '~/connectors/_template'
  *   • permanent failure      — other 4xx (and invalid config) set retryable: false
  *   • sanitization (NFR-SEC-3) — untrusted content cannot inject into the payload
  *   • validateConfig         — accepts good config, rejects bad
+ *
+ * If your connector fetches a user-supplied URL, it should route through
+ * `~/lib/ssrf-guard` (see the template). That guard's own private/loopback/
+ * metadata-blocking logic is covered once, centrally, in
+ * `~/lib/ssrf-guard.unit.test.ts` — mock it here (as below) so this file's
+ * local test server (on loopback) isn't itself rejected by the guard, and add
+ * a couple of unmocked tests like `webhook.ssrf.unit.test.ts` to prove your
+ * connector is actually wired to it.
  */
+vi.mock('~/lib/ssrf-guard', () => ({
+  SsrfBlockedError: class SsrfBlockedError extends Error {},
+  assertPublicHttpUrl: async (url: string) => {
+    try {
+      const { protocol } = new URL(url)
+      if (protocol !== 'http:' && protocol !== 'https:') {
+        return { ok: false, error: 'must be http(s)' }
+      }
+    } catch {
+      return { ok: false, error: 'is not a valid URL' }
+    }
+    return { ok: true }
+  },
+  fetchPublicOnly: (url: string, init: RequestInit) => fetch(url, init),
+}))
 
 let server: Server
 let baseUrl: string
@@ -134,11 +165,13 @@ describe('templateConnector (reference — not registered)', () => {
     expect(out).toMatchObject({ ok: false, retryable: false })
   })
 
-  it('validateConfig accepts a valid http(s) url and rejects bad config', () => {
-    expect(templateConnector.validateConfig?.({ url: baseUrl }).ok).toBe(true)
-    expect(templateConnector.validateConfig?.({}).ok).toBe(false)
-    expect(templateConnector.validateConfig?.({ url: 'ftp://x' }).ok).toBe(
-      false,
-    )
+  it('validateConfig accepts a valid http(s) url and rejects bad config', async () => {
+    expect(
+      (await templateConnector.validateConfig?.({ url: baseUrl }))?.ok,
+    ).toBe(true)
+    expect((await templateConnector.validateConfig?.({}))?.ok).toBe(false)
+    expect(
+      (await templateConnector.validateConfig?.({ url: 'ftp://x' }))?.ok,
+    ).toBe(false)
   })
 })

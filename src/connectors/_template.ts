@@ -1,4 +1,9 @@
 import { type } from 'arktype'
+import {
+  SsrfBlockedError,
+  assertPublicHttpUrl,
+  fetchPublicOnly,
+} from '~/lib/ssrf-guard'
 import type { DeliveryOutcome } from '~/lib/queue'
 import type { Connector, ConnectorInput } from './types'
 
@@ -95,19 +100,20 @@ export const templateConnector: Connector = {
   // (4) OPTIONAL setup-time check (FR-CON-6). The dashboard uses this to reject a
   // misconfigured destination before it is saved, so bad config never reaches the
   // queue. Keep it cheap and side-effect-free (no live delivery here).
-  validateConfig(config) {
+  //
+  // SSRF (NFR-SEC-1): any config field that becomes a URL your connector fetches
+  // is attacker-influenced — a form owner could point it at your own server's
+  // internal network. `assertPublicHttpUrl` rejects non-http(s) schemes and
+  // resolves the hostname to reject private/loopback/link-local/metadata
+  // addresses. If your connector never fetches a user-supplied URL (e.g. it only
+  // calls a fixed vendor API, like `email.ts`), you don't need this at all.
+  async validateConfig(config) {
     const parsed = configSchema(config)
     if (parsed instanceof type.errors) {
       return { ok: false, error: parsed.summary }
     }
-    try {
-      const { protocol } = new URL(parsed.url)
-      if (protocol !== 'http:' && protocol !== 'https:') {
-        return { ok: false, error: 'URL must be http(s).' }
-      }
-    } catch {
-      return { ok: false, error: 'URL is not valid.' }
-    }
+    const check = await assertPublicHttpUrl(parsed.url)
+    if (!check.ok) return { ok: false, error: `URL ${check.error}.` }
     return { ok: true }
   },
 
@@ -137,15 +143,23 @@ export const templateConnector: Connector = {
 
     let res: Response
     try {
-      res = await fetch(url, {
+      // (7) Route through `fetchPublicOnly`, not raw `fetch`, whenever `url`
+      // came from user config — it re-checks the target (and every redirect
+      // hop) against the same private-network blocklist as validateConfig,
+      // because DNS can change between config time and delivery time.
+      res = await fetchPublicOnly(url, {
         method: 'POST',
         headers,
         body: JSON.stringify({ username, text: formatMessage(payload) }),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        timeoutMs: TIMEOUT_MS,
       })
     } catch (err) {
-      // (7) RETRY CLASSIFICATION. Network errors and timeouts are transient →
-      // retryable. The queue applies backoff and re-attempts.
+      // (8) RETRY CLASSIFICATION. An SSRF-blocked target can never succeed →
+      // permanent. Network errors and timeouts are transient → retryable. The
+      // queue applies backoff and re-attempts retryable failures.
+      if (err instanceof SsrfBlockedError) {
+        return { ok: false, retryable: false, error: err.message }
+      }
       return {
         ok: false,
         retryable: true,

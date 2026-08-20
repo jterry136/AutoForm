@@ -118,6 +118,11 @@ destinations (NFR-MAINT-1). The core treats connectors as **opaque**.
   configuration time.
 - Each connector owns its own config shape, auth, and payload formatting. Adding a
   connector must not require changes to ingestion or delivery core.
+- **A connector that fetches a user-supplied URL must route through `~/lib/ssrf-guard`**
+  (`assertPublicHttpUrl` in `validateConfig`, `fetchPublicOnly` in `deliver`), not raw
+  `fetch` (D-015). This is not needed for connectors calling a fixed vendor endpoint (e.g.
+  the email connector's Resend SDK call) — only ones where `config` supplies the
+  destination address, like the webhook connector.
 
 ## Conventions
 

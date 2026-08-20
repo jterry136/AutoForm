@@ -42,7 +42,9 @@ export async function addDestinationForUser(
   if (!connector) {
     return { ok: false, error: `Unknown destination type "${input.type}".` }
   }
-  const check = connector.validateConfig?.(input.config) ?? { ok: true }
+  const check = (await connector.validateConfig?.(input.config)) ?? {
+    ok: true,
+  }
   if (!check.ok) {
     return { ok: false, error: check.error ?? 'Invalid destination config.' }
   }

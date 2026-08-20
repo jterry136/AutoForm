@@ -1,6 +1,37 @@
 import { type Server, createServer } from 'node:http'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 import { webhookConnector } from '~/connectors/webhook'
+
+/**
+ * This file covers the connector's own HTTP mechanics (payload shape, auth,
+ * retry classification) against a real local server, so the SSRF guard is
+ * mocked down to just its protocol check — the guard's actual address-blocking
+ * logic (loopback, private ranges, metadata IPs) has its own dedicated
+ * coverage in `~/lib/ssrf-guard.unit.test.ts` and `webhook.ssrf.unit.test.ts`.
+ */
+vi.mock('~/lib/ssrf-guard', () => ({
+  SsrfBlockedError: class SsrfBlockedError extends Error {},
+  assertPublicHttpUrl: async (url: string) => {
+    try {
+      const { protocol } = new URL(url)
+      if (protocol !== 'http:' && protocol !== 'https:') {
+        return { ok: false, error: 'must be http(s)' }
+      }
+    } catch {
+      return { ok: false, error: 'is not a valid URL' }
+    }
+    return { ok: true }
+  },
+  fetchPublicOnly: (url: string, init: RequestInit) => fetch(url, init),
+}))
 
 let server: Server
 let baseUrl: string
@@ -106,9 +137,13 @@ describe('webhookConnector (FR-CON-2)', () => {
     expect(out).toMatchObject({ ok: false, retryable: false })
   })
 
-  it('validateConfig checks for a valid http(s) url', () => {
-    expect(webhookConnector.validateConfig?.({ url: baseUrl }).ok).toBe(true)
-    expect(webhookConnector.validateConfig?.({}).ok).toBe(false)
-    expect(webhookConnector.validateConfig?.({ url: 'ftp://x' }).ok).toBe(false)
+  it('validateConfig checks for a valid http(s) url', async () => {
+    expect(
+      (await webhookConnector.validateConfig?.({ url: baseUrl }))?.ok,
+    ).toBe(true)
+    expect((await webhookConnector.validateConfig?.({}))?.ok).toBe(false)
+    expect(
+      (await webhookConnector.validateConfig?.({ url: 'ftp://x' }))?.ok,
+    ).toBe(false)
   })
 })
