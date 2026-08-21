@@ -10,6 +10,47 @@ decision, why, and what it implies. Newest at the top.
 
 ---
 
+## D-016 — Post-submit redirect is same-origin-by-default, off-site only when registered
+
+**Date:** 2026-08-20 · **Status:** Accepted · **Covers:** FR-EMB-2, NFR-SEC-4/5
+
+**Decision.** `resolveRedirectTarget` (`src/lib/validation.ts`) is the single place the
+post-submit redirect target (`_redirect`) is resolved, called from `ingestSubmission` on
+every path that returns one — including the silently-rejected honeypot path, so a bot and a
+real submitter see the same response shape. The rule:
+
+- A same-origin **relative path** (`/thanks`, not `//host/thanks`) is always honored.
+- An **absolute `http(s)` URL** is honored only when its origin matches the form's own
+  `redirectUrl` column — the destination the form owner has registered for this form.
+- Anything else — a different origin, `javascript:`/`data:`/another scheme, a malformed
+  value — is ignored. The response falls back to the registered `redirectUrl` if there is
+  one, otherwise the hosted `/success` page. `_redirect` never wins over the registered
+  value; it can only narrow to a same-origin path under it.
+
+**Rationale.** `POST /f/{formId}` is public and intentionally unauthenticated (self-hosting
+docs — it must accept posts from any site's embed). That means `_redirect` in the request
+body is attacker-controlled: anyone can POST directly to a discoverable form ID with
+`_redirect=https://phish.example` and get an instant, silent 303 off AutoForm's own trusted
+domain — an open-redirect/phishing primitive, and one of the two most severe findings (the
+other being the webhook connector's SSRF, fixed separately) of a pre-deployment security
+audit. Restricting to the form owner's own registered origin closes this while preserving
+the documented (FR-EMB-2, Must)
+ability to redirect off-site to the owner's own thank-you page — the owner just has to
+register that origin once, rather than trusting whatever value shows up in a given POST.
+
+**Implications.**
+- Until a dashboard UI exists to set `redirectUrl` (it doesn't yet — the column exists but
+  has no write path today), off-site `_redirect` has no way to be honored in practice; only
+  relative paths work. This is a known, deliberate gap, not a workaround to remove later —
+  building that UI is a separate product feature, not part of this fix.
+- `formRow.redirectUrl` itself is re-validated as an http(s) URL before being used as either
+  the trust anchor or the fallback target — a bad value reaching that column by some other
+  path (e.g. a future admin tool bug) can't produce an unsafe redirect either.
+- Any future code path that resolves a redirect target from form-adjacent data must go
+  through `resolveRedirectTarget`, not re-derive its own scheme/origin check.
+
+---
+
 ## D-014 — One canonical environment reference, kept honest by a parity test
 
 **Date:** 2026-08-17 · **Status:** Accepted · **Covers:** FR-DOC-6 · **Constraint:** C-2

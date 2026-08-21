@@ -2,6 +2,7 @@ import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import {
   formDefinitionSchema,
+  resolveRedirectTarget,
   validateSubmission,
   type FormDefinition,
 } from '~/lib/validation'
@@ -186,5 +187,83 @@ describe('validateSubmission — normalize then validate (D-005)', () => {
     })
     expect(validateSubmission(def, {}).ok).toBe(false)
     expect(validateSubmission(def, { agree: 'on' }).ok).toBe(true)
+  })
+})
+
+describe('resolveRedirectTarget — open-redirect guard (NFR-SEC-4/5)', () => {
+  it('honors a same-origin relative path with no registered redirectUrl', () => {
+    expect(resolveRedirectTarget('/thanks', null)).toBe('/thanks')
+  })
+
+  it('rejects an off-site absolute url when nothing is registered', () => {
+    expect(resolveRedirectTarget('https://phish.example', null)).toBeNull()
+  })
+
+  it('honors an absolute url matching the registered origin', () => {
+    expect(
+      resolveRedirectTarget(
+        'https://owner-site.example/thanks?ref=1',
+        'https://owner-site.example',
+      ),
+    ).toBe('https://owner-site.example/thanks?ref=1')
+  })
+
+  it('falls back to the registered redirectUrl when _redirect is off-site', () => {
+    expect(
+      resolveRedirectTarget(
+        'https://phish.example',
+        'https://owner-site.example/thanks',
+      ),
+    ).toBe('https://owner-site.example/thanks')
+  })
+
+  it('falls back to the registered redirectUrl when _redirect is absent', () => {
+    expect(
+      resolveRedirectTarget(undefined, 'https://owner-site.example/thanks'),
+    ).toBe('https://owner-site.example/thanks')
+  })
+
+  it('treats a different scheme on an otherwise-matching host as off-origin', () => {
+    // Rejected (scheme mismatch means a different origin) → falls back to
+    // the registered value, same as any other off-origin _redirect.
+    expect(
+      resolveRedirectTarget(
+        'http://owner-site.example/thanks', // registered is https
+        'https://owner-site.example/thanks',
+      ),
+    ).toBe('https://owner-site.example/thanks')
+  })
+
+  it('rejects a protocol-relative path (browsers treat // as scheme-relative)', () => {
+    expect(resolveRedirectTarget('//evil.example', null)).toBeNull()
+    expect(
+      resolveRedirectTarget('//evil.example', 'https://owner-site.example'),
+    ).toBe('https://owner-site.example')
+  })
+
+  it('rejects a backslash-prefixed path (some browsers normalize \\ to /)', () => {
+    expect(resolveRedirectTarget('/\\evil.example', null)).toBeNull()
+  })
+
+  it('rejects non-http(s) schemes even when they "look" registered', () => {
+    expect(
+      resolveRedirectTarget('javascript:alert(1)', 'javascript:alert(1)'),
+    ).toBeNull()
+    expect(resolveRedirectTarget('data:text/html,x', null)).toBeNull()
+  })
+
+  it('rejects a malformed url', () => {
+    expect(resolveRedirectTarget('not a url', null)).toBeNull()
+  })
+
+  it('ignores a non-string _redirect value', () => {
+    expect(
+      resolveRedirectTarget(['a', 'b'], 'https://owner-site.example'),
+    ).toBe('https://owner-site.example')
+  })
+
+  it('returns null when neither _redirect nor redirectUrl is usable', () => {
+    expect(resolveRedirectTarget(undefined, null)).toBeNull()
+    expect(resolveRedirectTarget('https://phish.example', null)).toBeNull()
   })
 })

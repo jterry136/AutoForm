@@ -85,6 +85,71 @@ describe('ingestSubmission — validate → persist → enqueue (Chunk 2 pipelin
     if (result.status === 'ok') expect(result.redirectTarget).toBe('/thanks')
   })
 
+  it('ignores an off-site _redirect when the form has no registered redirectUrl (open-redirect guard, NFR-SEC-4/5)', async () => {
+    const f = await createForm() // redirectUrl defaults to null
+    const result = await ingestSubmission(
+      formPost({
+        email: 'user@example.com',
+        _redirect: 'https://phish.example/steal-creds',
+      }),
+      f.publicId,
+    )
+    expect(result.status).toBe('ok')
+    if (result.status === 'ok') expect(result.redirectTarget).toBeNull()
+  })
+
+  it('falls back to the registered redirectUrl when _redirect is off-site', async () => {
+    const f = await createForm({
+      redirectUrl: 'https://owner-site.example/thanks',
+    })
+    const result = await ingestSubmission(
+      formPost({
+        email: 'user@example.com',
+        _redirect: 'https://phish.example/steal-creds',
+      }),
+      f.publicId,
+    )
+    expect(result.status).toBe('ok')
+    if (result.status === 'ok') {
+      expect(result.redirectTarget).toBe('https://owner-site.example/thanks')
+    }
+  })
+
+  it('honors _redirect when it matches the registered redirectUrl origin', async () => {
+    const f = await createForm({
+      redirectUrl: 'https://owner-site.example/thanks',
+    })
+    const result = await ingestSubmission(
+      formPost({
+        email: 'user@example.com',
+        _redirect: 'https://owner-site.example/thanks?ref=embed',
+      }),
+      f.publicId,
+    )
+    expect(result.status).toBe('ok')
+    if (result.status === 'ok') {
+      expect(result.redirectTarget).toBe(
+        'https://owner-site.example/thanks?ref=embed',
+      )
+    }
+  })
+
+  it('the honeypot silently rejects with the same guarded redirect target', async () => {
+    // Spam gets the same-looking response as success (FR-SPAM-1), so the
+    // open-redirect guard must apply on the spam path too, not just 'ok'.
+    const f = await createForm()
+    const result = await ingestSubmission(
+      formPost({
+        email: 'user@example.com',
+        _redirect: 'https://phish.example/steal-creds',
+        _gotcha: 'i am a bot',
+      }),
+      f.publicId,
+    )
+    expect(result.status).toBe('spam')
+    if (result.status === 'spam') expect(result.redirectTarget).toBeNull()
+  })
+
   it('accepts a JSON body (FR-ING-1)', async () => {
     const f = await createForm()
     const result = await ingestSubmission(

@@ -15,8 +15,9 @@ form in React.
 
 - **`name` is the contract.** The HTML `name` attribute must equal the definition field's
   `name`. Labels are for humans; names are for routing and validation.
-- **Reserved names start with `_`.** `_redirect` (post-submit redirect target) and
-  `_gotcha` (spam honeypot) are control fields — never declare them in your definition.
+- **Reserved names start with `_`.** `_redirect` (post-submit redirect target, guarded
+  against open redirect — see [getting started §4](getting-started.md#4-put-the-form-on-your-site))
+  and `_gotcha` (spam honeypot) are control fields — never declare them in your definition.
   Any `_`-prefixed field is stripped before validation and never stored.
 - **Unknown fields are rejected.** Send only fields the definition declares (plus reserved
   control fields).

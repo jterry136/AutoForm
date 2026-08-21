@@ -87,6 +87,70 @@ export function isReservedField(name: string): boolean {
   return name.startsWith(RESERVED_PREFIX)
 }
 
+// ─── Redirect target resolution (open-redirect guard, NFR-SEC-4/5) ───────────
+
+/**
+ * A same-origin relative path: exactly one leading `/` (never `//`, which
+ * browsers treat as scheme-relative to an absolute URL on another host) and
+ * no backslash (some browsers normalize `\` to `/`, turning `/\evil.com`
+ * into the same scheme-relative trick).
+ */
+function isSafeRelativePath(value: string): boolean {
+  return /^\/(?!\/)/.test(value) && !value.includes('\\')
+}
+
+/** An absolute `http(s)` URL, or `null` if `value` is missing/malformed/another scheme. */
+function parseAbsoluteHttpUrl(value: string | null): URL | null {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Resolve the post-submit redirect target (FR-EMB-2), guarding against open
+ * redirect (NFR-SEC-4/5). `requested` is the request-supplied `_redirect`
+ * field — attacker-controlled, since anyone can POST directly to the public
+ * ingestion endpoint with any value. `registered` is the form's own
+ * `redirectUrl`, set by the form owner in the dashboard — an origin they
+ * have explicitly registered for this form.
+ *
+ * - A same-origin relative path (`/thanks`) is always honored.
+ * - An absolute `http(s)` URL is honored only when its origin matches
+ *   `registered`'s — the owner opted into that destination.
+ * - Anything else (a different origin, `javascript:`/`data:`/another scheme,
+ *   a malformed value) is ignored: `_redirect` never overrides the owner's
+ *   registered destination, so a stranger POSTing to the endpoint cannot
+ *   redirect a submitter to an arbitrary site from AutoForm's own domain.
+ *
+ * Falls back to `registered` (if it is itself a valid http(s) URL) or `null`
+ * (the hosted `/success` page) when `requested` is absent or rejected.
+ */
+export function resolveRedirectTarget(
+  requested: unknown,
+  registered: string | null,
+): string | null {
+  const registeredUrl = parseAbsoluteHttpUrl(registered)
+
+  if (typeof requested === 'string' && requested.length > 0) {
+    if (isSafeRelativePath(requested)) return requested
+
+    const requestedUrl = parseAbsoluteHttpUrl(requested)
+    if (
+      requestedUrl &&
+      registeredUrl &&
+      requestedUrl.origin === registeredUrl.origin
+    ) {
+      return requested
+    }
+  }
+
+  return registeredUrl ? registered : null
+}
+
 // ─── Submission validation ───────────────────────────────────────────────────
 
 export type SubmissionError = { field: string; message: string }
