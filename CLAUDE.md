@@ -143,6 +143,10 @@ destinations (NFR-MAINT-1). The core treats connectors as **opaque**.
   header injection and chat-markup injection (NFR-SEC-3).
 - Keep the **ingestion path fast and side-effect-light**: validate → persist → enqueue →
   respond. Heavy work belongs in the worker.
+- **Never read a request body without a cap.** `POST /f/{formId}` is public and
+  unauthenticated, so an unbounded `request.text()` is a memory-exhaustion DoS. Use
+  `readBodyCapped` (`~/lib/body-limits`), which checks `content-length` up front and caps
+  the actual bytes read regardless of what that header claims (D-017).
 - **Purging a submission is redaction, not deletion** ([DECISIONS.md](DECISIONS.md)
   D-011). Retention clears the content columns and stamps `purged_at`, leaving the
   `submission` row and its `delivery_attempt` history intact — a hard `DELETE` would

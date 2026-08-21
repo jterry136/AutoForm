@@ -116,6 +116,14 @@ function respond(result: IngestResult, wantsJson: boolean): Response {
             'Unsupported content type',
             '<p>Send the form as urlencoded or JSON.</p>',
           )
+    case 'payload_too_large':
+      return wantsJson
+        ? jsonResponse({ ok: false, error: 'Payload too large' }, 413)
+        : htmlResponse(
+            413,
+            'Payload too large',
+            '<p>Your submission is too large to accept.</p>',
+          )
     case 'misconfigured':
       return wantsJson
         ? jsonResponse({ ok: false, error: 'Form is misconfigured' }, 500)

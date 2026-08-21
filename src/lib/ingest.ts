@@ -2,6 +2,12 @@ import { createHash } from 'node:crypto'
 import { type } from 'arktype'
 import { db } from '~/db'
 import { submission } from '~/db/schema'
+import {
+  MAX_BODY_BYTES,
+  MAX_FIELD_COUNT,
+  fieldValueTooLarge,
+  readBodyCapped,
+} from '~/lib/body-limits'
 import { enqueueDeliveries } from '~/lib/queue'
 import { checkRateLimit, isHoneypotTripped } from '~/lib/spam'
 import {
@@ -32,17 +38,24 @@ export type IngestResult =
   | { status: 'invalid'; errors: SubmissionError[] }
   | { status: 'not_found' }
   | { status: 'unsupported_media' }
+  | { status: 'payload_too_large' }
   | { status: 'misconfigured' }
 
+type ParsedFields = { ok: true; data: Record<string, unknown> } | { ok: false }
+
 /** Parse urlencoded body, collapsing repeated keys into arrays (multi-value). */
-function parseUrlEncoded(body: string): Record<string, unknown> {
+function parseUrlEncoded(body: string): ParsedFields {
   const params = new URLSearchParams(body)
+  if ([...params].length > MAX_FIELD_COUNT) return { ok: false }
+
   const out: Record<string, unknown> = {}
   for (const key of new Set(params.keys())) {
     const all = params.getAll(key)
-    out[key] = all.length > 1 ? all : (all[0] ?? '')
+    const value = all.length > 1 ? all : (all[0] ?? '')
+    if (fieldValueTooLarge(value)) return { ok: false }
+    out[key] = value
   }
-  return out
+  return { ok: true, data: out }
 }
 
 function clientIp(request: Request): string | null {
@@ -64,37 +77,51 @@ export async function ingestSubmission(
   publicId: string,
 ): Promise<IngestResult> {
   const contentType = request.headers.get('content-type') ?? ''
-  const rawBody = await request.text()
+
+  // Bound the raw read before anything else touches the body (a DoS guard —
+  // the endpoint is public and unauthenticated, so an unbounded read is a
+  // trivial memory-exhaustion vector; D-017).
+  const bodyRead = await readBodyCapped(request, MAX_BODY_BYTES)
+  if (!bodyRead.ok) return { status: 'payload_too_large' }
+  const rawBody = bodyRead.text
 
   // Parse the body into raw key-values by content type (FR-ING-1/2).
   let raw: Record<string, unknown>
   if (contentType.includes('application/json')) {
+    let parsed: unknown
     try {
-      const parsed: unknown = JSON.parse(rawBody || '{}')
-      if (
-        parsed === null ||
-        typeof parsed !== 'object' ||
-        Array.isArray(parsed)
-      ) {
-        return {
-          status: 'invalid',
-          errors: [
-            { field: '', message: 'Request body must be a JSON object' },
-          ],
-        }
-      }
-      raw = parsed as Record<string, unknown>
+      parsed = JSON.parse(rawBody || '{}')
     } catch {
       return {
         status: 'invalid',
         errors: [{ field: '', message: 'Invalid JSON body' }],
       }
     }
+    if (
+      parsed === null ||
+      typeof parsed !== 'object' ||
+      Array.isArray(parsed)
+    ) {
+      return {
+        status: 'invalid',
+        errors: [{ field: '', message: 'Request body must be a JSON object' }],
+      }
+    }
+    const entries = Object.entries(parsed as Record<string, unknown>)
+    if (
+      entries.length > MAX_FIELD_COUNT ||
+      entries.some(([, value]) => fieldValueTooLarge(value))
+    ) {
+      return { status: 'payload_too_large' }
+    }
+    raw = parsed as Record<string, unknown>
   } else if (
     contentType.includes('application/x-www-form-urlencoded') ||
     contentType === ''
   ) {
-    raw = parseUrlEncoded(rawBody)
+    const parsed = parseUrlEncoded(rawBody)
+    if (!parsed.ok) return { status: 'payload_too_large' }
+    raw = parsed.data
   } else {
     // multipart/file uploads are deferred (FR-ING-6).
     return { status: 'unsupported_media' }

@@ -10,6 +10,45 @@ decision, why, and what it implies. Newest at the top.
 
 ---
 
+## D-017 — Ingestion body reads are capped, both by declared and actual size
+
+**Date:** 2026-08-20 · **Status:** Accepted · **Covers:** NFR-PERF-1
+
+**Decision.** `POST /f/{formId}` never buffers an unbounded body. `readBodyCapped`
+(`src/lib/body-limits.ts`) rejects a request whose `content-length` already exceeds
+`MAX_BODY_BYTES` (1 MB) without touching the body, and — because `content-length` can be
+absent or wrong for a streamed/chunked body — also reads the stream incrementally and
+cancels it the moment the running total crosses the cap, so an oversized body is never
+fully read into memory regardless of what the header claims. Independently,
+`MAX_FIELD_COUNT` (200) and `MAX_FIELD_VALUE_LENGTH` (100,000 characters) cap the parsed
+shape (field count, and each string/array value) for both urlencoded and JSON bodies —
+a secondary guard against a payload that is small in total bytes but structurally
+excessive (many tiny fields), independent of the byte cap. All four are compile-time
+constants, not environment variables, matching the existing convention for ingestion
+tunables (D-009).
+
+**Rationale.** The endpoint is public and unauthenticated by design (self-hosting docs — it
+must accept a POST from any embed). Before this, `ingestSubmission` called
+`request.text()` unconditionally, so a handful of concurrent multi-hundred-MB posts could
+exhaust process memory — a trivial, unauthenticated DoS, flagged in a pre-deployment
+security audit. The limits are set generously above any realistic legitimate submission (a
+contact form is nowhere near 200 fields or 100 KB in one field) specifically so they never
+reject real traffic; their job is bounding the worst case, not shaping the product.
+
+**Implications.**
+- These checks run **before** the form lookup (still before any DB round-trip), so an
+  oversized or degenerate request is rejected cheaply — consistent with the per-IP rate
+  limit already being checked pre-lookup (D-009).
+- A form-specific `maxLength` on a text field (`src/lib/validation.ts`) is a separate,
+  later check against the *parsed and normalized* value; `MAX_FIELD_VALUE_LENGTH` is a flat
+  ceiling checked earlier, before the form definition is even loaded, and cannot be aware
+  of it. A field legitimately configured with `maxLength` above 100,000 would need this
+  constant raised too — not expected in practice, but worth knowing if it ever comes up.
+- The route layer (`src/routes/f/$formId.ts`) maps the new `payload_too_large` status to
+  HTTP `413`.
+
+---
+
 ## D-014 — One canonical environment reference, kept honest by a parity test
 
 **Date:** 2026-08-17 · **Status:** Accepted · **Covers:** FR-DOC-6 · **Constraint:** C-2

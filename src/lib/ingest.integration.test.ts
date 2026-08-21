@@ -141,6 +141,106 @@ describe('ingestSubmission — validate → persist → enqueue (Chunk 2 pipelin
   })
 })
 
+describe('payload size limits (D-017)', () => {
+  it('rejects an oversized urlencoded body declared via content-length', async () => {
+    const f = await createForm()
+    const oversized = `email=${'a'.repeat(2_000_000)}@example.com`
+    const result = await ingestSubmission(
+      new Request('http://localhost/f/x', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          'content-length': String(oversized.length),
+        },
+        body: oversized,
+      }),
+      f.publicId,
+    )
+    expect(result.status).toBe('payload_too_large')
+  })
+
+  it('rejects an oversized JSON body', async () => {
+    const f = await createForm()
+    const oversized = JSON.stringify({ message: 'a'.repeat(2_000_000) })
+    const result = await ingestSubmission(
+      new Request('http://localhost/f/x', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: oversized,
+      }),
+      f.publicId,
+    )
+    expect(result.status).toBe('payload_too_large')
+  })
+
+  it('rejects a urlencoded body with too many fields, even under the byte cap', async () => {
+    const f = await createForm()
+    // 500 tiny fields — a few KB total, nowhere near MAX_BODY_BYTES, but
+    // well over MAX_FIELD_COUNT.
+    const manyFields = Array.from({ length: 500 }, (_, i) => `f${i}=x`).join(
+      '&',
+    )
+    const result = await ingestSubmission(
+      new Request('http://localhost/f/x', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: manyFields,
+      }),
+      f.publicId,
+    )
+    expect(result.status).toBe('payload_too_large')
+  })
+
+  it('rejects a single urlencoded field value over the per-field cap', async () => {
+    const f = await createForm()
+    const result = await ingestSubmission(
+      formPost({ email: 'a@b.co', message: 'x'.repeat(200_000) }),
+      f.publicId,
+    )
+    expect(result.status).toBe('payload_too_large')
+  })
+
+  it('rejects a JSON body with too many top-level keys', async () => {
+    const f = await createForm()
+    const manyKeys: Record<string, string> = {}
+    for (let i = 0; i < 500; i++) manyKeys[`f${i}`] = 'x'
+    const result = await ingestSubmission(
+      new Request('http://localhost/f/x', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(manyKeys),
+      }),
+      f.publicId,
+    )
+    expect(result.status).toBe('payload_too_large')
+  })
+
+  it('rejects a JSON field value over the per-field cap', async () => {
+    const f = await createForm()
+    const result = await ingestSubmission(
+      new Request('http://localhost/f/x', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          email: 'a@b.co',
+          message: 'x'.repeat(200_000),
+        }),
+      }),
+      f.publicId,
+    )
+    expect(result.status).toBe('payload_too_large')
+  })
+
+  it('still accepts an ordinary, well-within-limits submission', async () => {
+    const f = await createForm()
+    const result = await ingestSubmission(
+      formPost({ email: 'user@example.com', message: 'a normal message' }),
+      f.publicId,
+    )
+    expect(result.status).toBe('ok')
+  })
+})
+
 describe('spam & abuse protection (Chunk 7)', () => {
   it('silently rejects a submission that fills the honeypot (FR-SPAM-1)', async () => {
     const f = await createForm()
