@@ -7,6 +7,7 @@ import { checkRateLimit, isHoneypotTripped } from '~/lib/spam'
 import {
   formDefinitionSchema,
   REDIRECT_FIELD,
+  resolveRedirectTarget,
   validateSubmission,
   type SubmissionError,
 } from '~/lib/validation'
@@ -130,12 +131,14 @@ export async function ingestSubmission(
   if (definition instanceof type.errors) return { status: 'misconfigured' }
 
   // Resolve the redirect target up front — needed even for silently-rejected
-  // spam, so a bot sees the same success response.
-  const redirectRaw = raw[REDIRECT_FIELD]
-  const redirectTarget =
-    typeof redirectRaw === 'string' && redirectRaw.length > 0
-      ? redirectRaw
-      : (formRow.redirectUrl ?? null)
+  // spam, so a bot sees the same success response. `_redirect` is
+  // attacker-controlled (anyone can POST directly to this endpoint), so it is
+  // only honored same-origin or against the form's own registered
+  // `redirectUrl` — never an arbitrary off-site target (NFR-SEC-4/5).
+  const redirectTarget = resolveRedirectTarget(
+    raw[REDIRECT_FIELD],
+    formRow.redirectUrl,
+  )
 
   // Honeypot (FR-SPAM-1): if the trap field is filled, silently reject — no
   // persist, no delivery — while returning a success-looking response.

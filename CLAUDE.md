@@ -141,6 +141,10 @@ destinations (NFR-MAINT-1). The core treats connectors as **opaque**.
   only at delivery time, never on the client.
 - **Sanitize submission content before it reaches connectors** — specifically guard email
   header injection and chat-markup injection (NFR-SEC-3).
+- **Never resolve a post-submit redirect target by hand.** `POST /f/{formId}` is public and
+  unauthenticated, so the request-supplied `_redirect` field is attacker-controlled. Always
+  go through `resolveRedirectTarget` (`~/lib/validation`), which only honors a same-origin
+  path or an absolute URL matching the form's own registered `redirectUrl` (D-016).
 - Keep the **ingestion path fast and side-effect-light**: validate → persist → enqueue →
   respond. Heavy work belongs in the worker.
 - **Purging a submission is redaction, not deletion** ([DECISIONS.md](DECISIONS.md)

@@ -69,7 +69,12 @@ The endpoint accepts both `application/x-www-form-urlencoded` and `application/j
 (D-001). Optional control fields:
 
 - `_redirect` (hidden) — where to send the browser after a successful no-JS submit. Without
-  it, AutoForm shows its hosted success page (`/success`).
+  it, AutoForm shows its hosted success page (`/success`). **Guarded against open redirect
+  (NFR-SEC-4/5):** a same-origin path (`/thanks`) always works; an absolute URL is only
+  honored when it matches the form's own registered redirect origin (not yet configurable
+  from the dashboard) — anything else is ignored in favor of that registered origin, or the
+  hosted success page if none is registered. This exists because the endpoint is public and
+  unauthenticated, so `_redirect` in a raw POST can't be trusted as coming from your embed.
 - the honeypot field (default `_gotcha`) — include it as an off-screen input to catch bots.
 
 ## 5. Submit and watch it deliver
